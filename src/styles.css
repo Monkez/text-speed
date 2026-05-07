@@ -281,6 +281,12 @@ select:focus {
   transition: 160ms ease;
 }
 
+.icon-button.tiny {
+  width: 28px;
+  height: 28px;
+  border-radius: 0.44rem;
+}
+
 .icon-button:hover {
   background: rgba(255, 255, 255, 0.09);
 }
@@ -609,7 +615,7 @@ kbd {
   min-height: 100vh;
   overflow: hidden;
   background: transparent;
-  padding: 0.55rem;
+  padding: 0.42rem;
   color: rgb(244 244 245);
 }
 
@@ -967,7 +973,7 @@ kbd {
 }
 
 .floating-panel-compact {
-  padding: 0.62rem;
+  padding: 0.5rem;
   border-color: rgba(255, 255, 255, 0.12);
   background: linear-gradient(145deg, rgba(20, 20, 20, 0.92), rgba(10, 10, 10, 0.84));
 }
@@ -977,13 +983,15 @@ kbd {
   align-items: center;
   justify-content: space-between;
   gap: 0.65rem;
-  margin-bottom: 0.48rem;
+  margin-bottom: 0.42rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  padding: 0.1rem 0.05rem 0.45rem;
 }
 
 .floating-compact-head h2 {
   margin: 0;
   color: rgb(244 244 245);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 750;
 }
 
@@ -992,6 +1000,12 @@ kbd {
   color: rgb(113 113 122);
   font-size: 0.66rem;
   line-height: 1.2;
+}
+
+.floating-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
 }
 
 .status-dot {

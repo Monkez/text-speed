@@ -24,8 +24,8 @@ const CLIPBOARD_CLEANUP_DELAY_MS: u64 = 2_000;
 const CLIPBOARD_WRITE_SETTLE_MS: u64 = 140;
 const SELECT_ALL_SETTLE_MS: u64 = 80;
 const PASTE_SETTLE_MS: u64 = 180;
-const FLOATING_WINDOW_WIDTH: f64 = 340.0;
-const FLOATING_WINDOW_HEIGHT: f64 = 330.0;
+const FLOATING_WINDOW_WIDTH: f64 = 330.0;
+const FLOATING_WINDOW_HEIGHT: f64 = 300.0;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

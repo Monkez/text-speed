@@ -4,6 +4,7 @@ import {
   Clipboard,
   Command,
   Copy,
+  CopyCheck,
   Cpu,
   FileText,
   Globe2,
@@ -44,6 +45,7 @@ import {
   runAiAction,
   runFloatingAction,
   saveSettings,
+  writeClipboardText,
 } from "./lib/tauri";
 
 const navItems = [
@@ -904,6 +906,7 @@ function FloatingWindowApp() {
   const [selectedFloatingActionId, setSelectedFloatingActionId] = useState("translate");
   const [selectedText, setSelectedText] = useState("");
   const [result, setResult] = useState("");
+  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [shortcut, setShortcut] = useState("Hotkey");
 
@@ -920,6 +923,7 @@ function FloatingWindowApp() {
       if (event.payload.action !== "popup") return;
       setShortcut(event.payload.hotkey);
       setResult("");
+      setCopied(false);
       try {
         const text = await readClipboardText();
         setSelectedText(text.trim() ? text : "");
@@ -959,6 +963,7 @@ function FloatingWindowApp() {
     }
 
     setBusy(true);
+    setCopied(false);
     try {
       const response = await runFloatingAction(actionConfig.id, input);
       setResult(response);
@@ -969,19 +974,24 @@ function FloatingWindowApp() {
     }
   }
 
+  async function handleCopyResult() {
+    const output = result.trim();
+    if (!output) return;
+    try {
+      await writeClipboardText(output);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   return (
     <main className="floating-window-root">
-      <div className="hotkey-popup-title">
-        <div>
-          <span>TextSpeed</span>
-          <strong>{shortcut}</strong>
-        </div>
-        <button className="icon-button" onClick={() => hideFloatingWindow().catch(() => undefined)} title="Close popup" type="button">
-          <X size={16} />
-        </button>
-      </div>
       <FloatingActionMenu
         busy={busy}
+        copied={copied}
+        onCopyResult={handleCopyResult}
         onAction={handleFloatingAction}
         result={result}
         actions={settings.floatingActions.filter((item) => item.enabled)}
@@ -1695,6 +1705,8 @@ function validateOneHotkey(value: string, label: string) {
 function FloatingActionMenu({
   actions,
   busy,
+  copied,
+  onCopyResult,
   onAction,
   result,
   shortcut,
@@ -1702,6 +1714,8 @@ function FloatingActionMenu({
 }: {
   actions: FloatingAction[];
   busy: boolean;
+  copied?: boolean;
+  onCopyResult?: () => void;
   onAction: (actionId: string) => void;
   result: string;
   shortcut: string;
@@ -1719,7 +1733,16 @@ function FloatingActionMenu({
           <h2>TextSpeed</h2>
           <p>{shortcut}</p>
         </div>
-        <span className="status-dot" />
+        <div className="floating-head-actions">
+          {result.trim() && onCopyResult && (
+            <button className="icon-button tiny" onClick={onCopyResult} title="Copy result" type="button">
+              {copied ? <CopyCheck size={14} /> : <Copy size={14} />}
+            </button>
+          )}
+          <button className="icon-button tiny" onClick={() => hideFloatingWindow().catch(() => undefined)} title="Close popup" type="button">
+            <X size={14} />
+          </button>
+        </div>
       </div>
       <div className="floating-action-grid">
         {actions.map((action) => {

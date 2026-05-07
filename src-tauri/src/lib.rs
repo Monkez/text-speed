@@ -3,7 +3,7 @@ mod textspeed;
 use std::sync::{Arc, Mutex};
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Manager, WindowEvent,
 };
 use textspeed::inline_engine::InlineRuntime;
 use textspeed::settings::AppSettings;
@@ -34,6 +34,13 @@ pub fn run() {
             textspeed::commands::get_model_ids,
             textspeed::commands::get_runtime_status,
         ])
+        .on_window_event(|window, event| {
+            if window.label() == "floating" {
+                if let WindowEvent::Focused(false) = event {
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             let loaded_settings = textspeed::store::load_settings(app.handle());
             let state = app.state::<TextSpeedState>();
