@@ -16,7 +16,7 @@ export const fallbackSettings: AppSettings = {
       name: "trans",
       label: "Translate",
       action: "translate",
-      prompt: "Dịch theo cặp ngôn ngữ đã cấu hình. Tự phát hiện ngôn ngữ nguồn và dịch sang ngôn ngữ còn lại.",
+      prompt: "Dịch theo cặp ngôn ngữ ưu tiên; nếu nguồn nằm ngoài cặp này thì dịch sang ngôn ngữ ưu tiên.",
       enabled: true,
     },
     {
@@ -46,7 +46,7 @@ export const fallbackSettings: AppSettings = {
       id: "translate",
       label: "Translate",
       action: "translate",
-      prompt: "Dịch theo cặp ngôn ngữ đã cấu hình. Tự phát hiện ngôn ngữ nguồn và dịch sang ngôn ngữ còn lại.",
+      prompt: "Dịch theo cặp ngôn ngữ ưu tiên; nếu nguồn nằm ngoài cặp này thì dịch sang ngôn ngữ ưu tiên.",
       enabled: true,
     },
     {

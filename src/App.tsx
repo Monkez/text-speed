@@ -223,7 +223,7 @@ function MainApp() {
       const response = await runAiAction(action, selectedText);
       setResult(response);
     } catch {
-      setResult(localFallback(action, selectedText, settings.translationLanguageA, settings.translationLanguageB));
+      setResult(localFallback(action, selectedText, settings.translationLanguageA, settings.translationLanguageB, settings.preferredLanguage));
     } finally {
       setBusy(false);
     }
@@ -240,7 +240,7 @@ function MainApp() {
       const response = await runFloatingAction(actionId, selectedText);
       setResult(response);
     } catch {
-      setResult(localFallback(actionConfig.action, selectedText, settings.translationLanguageA, settings.translationLanguageB));
+      setResult(localFallback(actionConfig.action, selectedText, settings.translationLanguageA, settings.translationLanguageB, settings.preferredLanguage));
     } finally {
       setBusy(false);
     }
@@ -259,7 +259,7 @@ function MainApp() {
       setResult(execution.output);
       setInlineResult(`//${execution.command} thay inline command bằng:\n${execution.output}`);
     } catch {
-      const fallback = localFallback("professional", "gửi file cho anh nhé", settings.translationLanguageA, settings.translationLanguageB);
+      const fallback = localFallback("professional", "gửi file cho anh nhé", settings.translationLanguageA, settings.translationLanguageB, settings.preferredLanguage);
       setResult(fallback);
       setInlineResult(`Browser preview fallback:\n${fallback}`);
     } finally {
@@ -395,7 +395,7 @@ function MainApp() {
                   <div className="metric-card">
                     <span>Translate Pair</span>
                     <strong>{settings.translationLanguageA} ↔ {settings.translationLanguageB}</strong>
-                    <small>Auto-detect source, translate to the other language</small>
+                    <small>Outside pair → {settings.preferredLanguage}</small>
                   </div>
                   <div className="metric-card">
                     <span>Inline</span>
@@ -485,11 +485,12 @@ function MainApp() {
                     <div>
                       <span>Translation Pair</span>
                       <strong>{settings.translationLanguageA} ↔ {settings.translationLanguageB}</strong>
+                      <small>Outside pair → {settings.preferredLanguage}</small>
                     </div>
                     <Languages size={18} />
                   </div>
                   <p>
-                    Translate actions auto-detect whether the source is language A or B, then translate to the other side.
+                    If input is language A or B, TextSpeed translates to the other side. If input is outside this pair, it translates to the preferred target.
                   </p>
                   <div className="translation-pair">
                     <label className="field">
@@ -500,7 +501,6 @@ function MainApp() {
                         onValueChange={(value) =>
                           setSettings({
                             ...settings,
-                            preferredLanguage: value,
                             translationLanguageA: value,
                           })
                         }
@@ -515,6 +515,17 @@ function MainApp() {
                       />
                     </label>
                   </div>
+                  <label className="field preferred-language-field">
+                    <span>Preferred target when outside pair</span>
+                    <ImeInput
+                      placeholder="Tiếng Việt"
+                      value={settings.preferredLanguage}
+                      onValueChange={(value) => setSettings({ ...settings, preferredLanguage: value })}
+                    />
+                    <small className="field-help">
+                      Example: French input with pair Tiếng Việt ↔ English will translate to {settings.preferredLanguage || "this language"}.
+                    </small>
+                  </label>
                 </section>
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
@@ -759,6 +770,10 @@ function MainApp() {
                       <span>Translate pair</span>
                       <strong>{settings.translationLanguageA} ↔ {settings.translationLanguageB}</strong>
                     </div>
+                    <div>
+                      <span>Outside pair target</span>
+                      <strong>{settings.preferredLanguage}</strong>
+                    </div>
                   </div>
                   <button className="primary-button mt-3 w-full justify-center" onClick={() => handleAction("translate")} type="button">
                     <Sparkles size={16} />
@@ -989,7 +1004,7 @@ function FloatingWindowApp() {
       const response = await runFloatingAction(actionConfig.id, input);
       setResult(response);
     } catch {
-      setResult(localFallback(actionConfig.action, input, settings.translationLanguageA, settings.translationLanguageB));
+      setResult(localFallback(actionConfig.action, input, settings.translationLanguageA, settings.translationLanguageB, settings.preferredLanguage));
     } finally {
       setBusy(false);
     }
@@ -1891,11 +1906,11 @@ function FloatingActionMenu({
   );
 }
 
-function localFallback(action: AiAction, text: string, languageA: string, languageB: string) {
+function localFallback(action: AiAction, text: string, languageA: string, languageB: string, preferredLanguage: string) {
   const compact = text.length > 130 ? `${text.slice(0, 130)}...` : text;
   const language = `${languageA} ↔ ${languageB}`;
   const responses: Record<AiAction, string> = {
-    translate: `Bản dịch sang ${language}: ${compact}`,
+    translate: `Dịch theo ${language}; nếu ngoài cặp thì sang ${preferredLanguage}: ${compact}`,
     summarize: `Tóm tắt: Người gửi cần nhận tài liệu cuối cùng sớm để kiểm tra timeline và ngân sách.`,
     reply: "Tôi sẽ gửi trước sáng mai và ưu tiên kiểm tra phần timeline cùng budget.",
     explain: `Giải thích ngắn: "${compact}" là nội dung cần AI xử lý theo ngữ cảnh hiện tại.`,

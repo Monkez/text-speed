@@ -20,7 +20,7 @@ const fallbackSettings = {
       name: "trans",
       label: "Translate",
       action: "translate",
-      prompt: "Dịch theo cặp ngôn ngữ đã cấu hình. Tự phát hiện ngôn ngữ nguồn và dịch sang ngôn ngữ còn lại.",
+      prompt: "Dịch theo cặp ngôn ngữ ưu tiên; nếu nguồn nằm ngoài cặp này thì dịch sang ngôn ngữ ưu tiên.",
       enabled: true,
     },
     { name: "fix", label: "Fix grammar", action: "fix", prompt: "Sửa chính tả, ngữ pháp, dấu câu. Không giải thích.", enabled: true },
@@ -28,7 +28,7 @@ const fallbackSettings = {
     { name: "mail", label: "Email draft", action: "mail", prompt: "Tạo email hoàn chỉnh có tiêu đề, lời chào, nội dung, kết thúc.", enabled: true },
   ],
   floatingActions: [
-    { id: "translate", label: "Translate", action: "translate", prompt: "Dịch tự động theo cặp ngôn ngữ ưu tiên.", enabled: true },
+    { id: "translate", label: "Translate", action: "translate", prompt: "Dịch theo cặp ngôn ngữ ưu tiên; nếu nguồn nằm ngoài cặp này thì dịch sang ngôn ngữ ưu tiên.", enabled: true },
     { id: "summary", label: "Summary", action: "summarize", prompt: "Tóm tắt ý chính, ngắn gọn.", enabled: true },
     { id: "reply", label: "Reply", action: "reply", prompt: "Viết một phản hồi ngắn, tự nhiên.", enabled: true },
     { id: "explain", label: "Explain", action: "explain", prompt: "Giải thích dễ hiểu, trực tiếp.", enabled: true },
@@ -68,7 +68,15 @@ function parseInlineBuffer(buffer) {
 
 function instructionFor(action, settings) {
   if (action === "translate") {
-    return `Detect whether the source is ${settings.translationLanguageA} or ${settings.translationLanguageB}. Translate to the other language. Return only the translated text.`;
+    return [
+      "Translate using TextSpeed language routing.",
+      `Preferred bilingual pair: ${settings.translationLanguageA} and ${settings.translationLanguageB}.`,
+      `Fallback target language: ${settings.preferredLanguage}.`,
+      `If the input language is primarily ${settings.translationLanguageA}, translate it to ${settings.translationLanguageB}.`,
+      `If the input language is primarily ${settings.translationLanguageB}, translate it to ${settings.translationLanguageA}.`,
+      `If the input language is not primarily ${settings.translationLanguageA} or ${settings.translationLanguageB}, translate it to ${settings.preferredLanguage}.`,
+      "Return only the translated text.",
+    ].join("\n");
   }
   if (action === "summarize") return "Summarize the text into concise key points.";
   if (action === "reply") return "Read the text and write one short, natural reply. Return only the reply.";

@@ -127,7 +127,7 @@ fn default_inline_commands() -> Vec<InlineCommand> {
             name: "trans".to_string(),
             label: "Translate".to_string(),
             action: AiAction::Translate,
-            prompt: "Dịch theo cặp ngôn ngữ đã cấu hình. Tự phát hiện ngôn ngữ nguồn và dịch sang ngôn ngữ còn lại."
+            prompt: "Dịch theo cặp ngôn ngữ ưu tiên; nếu nguồn nằm ngoài cặp này thì dịch sang ngôn ngữ ưu tiên."
                 .to_string(),
             enabled: true,
         },
@@ -163,7 +163,7 @@ fn default_floating_actions() -> Vec<FloatingAction> {
             id: "translate".to_string(),
             label: "Translate".to_string(),
             action: AiAction::Translate,
-            prompt: "Dịch theo cặp ngôn ngữ đã cấu hình. Tự phát hiện ngôn ngữ nguồn và dịch sang ngôn ngữ còn lại."
+            prompt: "Dịch theo cặp ngôn ngữ ưu tiên; nếu nguồn nằm ngoài cặp này thì dịch sang ngôn ngữ ưu tiên."
                 .to_string(),
             enabled: true,
         },

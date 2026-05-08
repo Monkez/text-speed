@@ -211,14 +211,16 @@ fn build_custom_instruction(action: AiAction, prompt: &str, settings: &AppSettin
 
 fn translation_instruction(settings: &AppSettings) -> String {
     format!(
-        "Translate using this preferred bilingual pair: '{}' and '{}'. Detect whether the input is primarily '{}' or '{}'. If the input is '{}', translate it to '{}'. If the input is '{}', translate it to '{}'. If mixed or unclear, translate to the opposite language that best preserves the original meaning. Return only the translated text.",
+        "Translate using TextSpeed language routing. Preferred bilingual pair: '{}' and '{}'. Fallback target language: '{}'. Detect the primary input language. If the input is primarily '{}', translate it to '{}'. If the input is primarily '{}', translate it to '{}'. If the input language is not primarily '{}' or '{}', translate it to '{}'. Return only the translated text.",
         settings.translation_language_a,
         settings.translation_language_b,
+        settings.preferred_language,
         settings.translation_language_a,
         settings.translation_language_b,
-        settings.translation_language_a,
-        settings.translation_language_b,
         settings.translation_language_b,
         settings.translation_language_a,
+        settings.translation_language_a,
+        settings.translation_language_b,
+        settings.preferred_language,
     )
 }
