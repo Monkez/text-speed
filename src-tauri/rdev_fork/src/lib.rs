@@ -272,6 +272,14 @@ where
     _listen(callback)
 }
 
+#[cfg(target_os = "windows")]
+pub fn set_listen_paused(paused: bool) {
+    crate::windows::set_listen_paused(paused);
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_listen_paused(_paused: bool) {}
+
 /// Sending some events
 ///
 /// ```no_run

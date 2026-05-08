@@ -98,6 +98,7 @@ impl InlineRuntime {
 
     pub fn set_app_focused(&self, focused: bool) {
         self.app_focused.store(focused, Ordering::SeqCst);
+        rdev::set_listen_paused(focused);
         if focused {
             if let Ok(mut buffer) = self.buffer.lock() {
                 buffer.clear();
