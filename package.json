@@ -30,6 +30,12 @@
       "main.cjs",
       "preload.cjs",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      }
     ]
   },
   "devDependencies": {

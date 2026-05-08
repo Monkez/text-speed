@@ -1,10 +1,11 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, screen, Tray } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
 let mainWindow;
 let floatingWindow;
+let tray;
 let keyboardHook;
 let inlineBusy = false;
 let hotkeyBusy = false;
@@ -194,6 +195,53 @@ async function runAi(action, prompt, text, settings) {
   return value.output_text || value.output?.flatMap((item) => item.content || []).map((part) => part.text || "").join("").trim() || "";
 }
 
+function iconPath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "icon.ico");
+  }
+  return path.join(__dirname, "build", "icon.ico");
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+  }
+  mainWindow.show();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) return tray;
+
+  tray = new Tray(iconPath());
+  tray.setToolTip("TextSpeed");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: "Open TextSpeed",
+      click: showMainWindow,
+    },
+    {
+      type: "separator",
+    },
+    {
+      label: "Quit",
+      click: () => app.quit(),
+    },
+  ]));
+  tray.on("click", showMainWindow);
+  tray.on("double-click", showMainWindow);
+  pushStatus(systemStatus, "Tray icon ready");
+  return tray;
+}
+
+function hideToTray() {
+  createTray();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1180,
@@ -201,7 +249,7 @@ function createWindow() {
     minWidth: 980,
     minHeight: 680,
     autoHideMenuBar: true,
-    icon: path.join(__dirname, "build", "icon.ico"),
+    icon: iconPath(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -224,7 +272,7 @@ function createFloatingWindow() {
     skipTaskbar: true,
     show: false,
     autoHideMenuBar: true,
-    icon: path.join(__dirname, "build", "icon.ico"),
+    icon: iconPath(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -673,7 +721,7 @@ ipcMain.handle("get_settings", () => loadSettings());
 ipcMain.handle("save_settings", (_event, payload) => saveSettings(payload.settings));
 ipcMain.handle("read_clipboard_text", () => clipboard.readText());
 ipcMain.handle("write_clipboard_text", (_event, payload) => clipboard.writeText(payload.text || ""));
-ipcMain.handle("hide_main_window", () => mainWindow?.hide());
+ipcMain.handle("hide_main_window", () => hideToTray());
 ipcMain.handle("hide_floating_window", () => floatingWindow?.hide());
 ipcMain.handle("parse_inline_buffer", (_event, payload) => parseInlineBuffer(payload.buffer));
 ipcMain.handle("execute_inline_command", async (_event, payload) => {
@@ -727,6 +775,7 @@ ipcMain.handle("get_runtime_status", () => ({
 
 app.whenReady().then(() => {
   createWindow();
+  createTray();
   registerHotkeys(loadSettings());
   startKeyboardHook();
 });
