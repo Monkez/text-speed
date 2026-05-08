@@ -246,15 +246,6 @@ function MainApp() {
     }
   }
 
-  async function handleClipboardImport() {
-    try {
-      const text = await readClipboardText();
-      if (text.trim()) setSelectedText(text);
-    } catch {
-      setSelectedText("Clipboard chỉ khả dụng khi chạy trong Tauri.");
-    }
-  }
-
   async function handleExecuteInline() {
     setBusy(true);
     try {
@@ -382,10 +373,6 @@ function MainApp() {
               <button className="ghost-button" onClick={handleHideToTray} title="Hide TextSpeed to system tray" type="button">
                 <Minimize2 size={16} />
                 Tray
-              </button>
-              <button className="ghost-button" onClick={handleClipboardImport} type="button">
-                <Clipboard size={16} />
-                Clipboard
               </button>
               <button className="primary-button" onClick={handleSave} type="button">
                 <Save size={16} />
@@ -1022,25 +1009,27 @@ type ImeInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "onChange" | "v
 };
 
 function ImeInput({ onValueChange, value, ...props }: ImeInputProps) {
-  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
 
   useEffect(() => {
-    if (!composing.current) setDraft(value);
+    const input = inputRef.current;
+    if (input && document.activeElement !== input && input.value !== value) {
+      input.value = value;
+    }
   }, [value]);
 
   return (
     <input
       {...props}
-      onChange={(event) => {
+      defaultValue={value}
+      onInput={(event) => {
         const next = event.currentTarget.value;
-        setDraft(next);
         if (!composing.current) onValueChange(next);
       }}
       onCompositionEnd={(event) => {
         composing.current = false;
         const next = event.currentTarget.value;
-        setDraft(next);
         onValueChange(next);
         props.onCompositionEnd?.(event);
       }}
@@ -1048,7 +1037,7 @@ function ImeInput({ onValueChange, value, ...props }: ImeInputProps) {
         composing.current = true;
         props.onCompositionStart?.(event);
       }}
-      value={draft}
+      ref={inputRef}
     />
   );
 }
@@ -1059,25 +1048,27 @@ type ImeTextareaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onCha
 };
 
 function ImeTextarea({ onValueChange, value, ...props }: ImeTextareaProps) {
-  const [draft, setDraft] = useState(value);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
 
   useEffect(() => {
-    if (!composing.current) setDraft(value);
+    const textarea = textareaRef.current;
+    if (textarea && document.activeElement !== textarea && textarea.value !== value) {
+      textarea.value = value;
+    }
   }, [value]);
 
   return (
     <textarea
       {...props}
-      onChange={(event) => {
+      defaultValue={value}
+      onInput={(event) => {
         const next = event.currentTarget.value;
-        setDraft(next);
         if (!composing.current) onValueChange(next);
       }}
       onCompositionEnd={(event) => {
         composing.current = false;
         const next = event.currentTarget.value;
-        setDraft(next);
         onValueChange(next);
         props.onCompositionEnd?.(event);
       }}
@@ -1085,7 +1076,7 @@ function ImeTextarea({ onValueChange, value, ...props }: ImeTextareaProps) {
         composing.current = true;
         props.onCompositionStart?.(event);
       }}
-      value={draft}
+      ref={textareaRef}
     />
   );
 }

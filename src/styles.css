@@ -14,10 +14,18 @@
   box-sizing: border-box;
 }
 
+html,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 1080px;
-  min-height: 720px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 body.floating-window-body {
@@ -238,21 +246,32 @@ textarea.tall {
   min-height: 160px;
 }
 
+.app-shell,
+.app-main {
+  height: 100vh;
+  min-height: 0;
+}
+
 .selected-text-panel {
-  padding: 0.85rem;
+  padding: 0.78rem;
 }
 
 .selected-text-panel .section-heading {
-  margin-bottom: 0.7rem;
+  margin-bottom: 0.55rem;
 }
 
-.selected-text-input {
-  min-height: 118px;
-  max-height: 170px;
+.selected-text-panel textarea.selected-text-input {
+  min-height: 86px !important;
+  max-height: 140px;
   resize: vertical;
-  padding: 0.68rem 0.75rem;
-  font-size: 0.86rem;
-  line-height: 1.45;
+  padding: 0.58rem 0.65rem !important;
+  font-size: 0.76rem !important;
+  line-height: 1.42 !important;
+}
+
+.selected-text-panel .primary-button {
+  padding: 0.58rem 0.75rem;
+  font-size: 0.8rem;
 }
 
 input:focus,
@@ -864,6 +883,72 @@ kbd {
   margin-top: 0;
 }
 
+@media (max-height: 820px) {
+  .content-grid {
+    gap: 1rem;
+    padding: 1rem;
+  }
+
+  .command-workbench {
+    padding: 0.85rem;
+  }
+
+  .command-workbench .section-heading {
+    margin-bottom: 0.75rem;
+  }
+
+  .command-workbench-grid {
+    gap: 0.75rem;
+  }
+
+  .function-list {
+    gap: 0.42rem;
+    max-height: none;
+  }
+
+  .function-list-item {
+    min-height: 58px;
+    padding: 0.55rem 1.75rem 0.55rem 0.65rem;
+  }
+
+  .function-list-item strong {
+    font-size: 0.8rem;
+  }
+
+  .function-list-item small,
+  .function-command {
+    font-size: 0.7rem;
+  }
+
+  .function-editor {
+    padding: 0.85rem;
+  }
+
+  .function-editor-head {
+    margin-bottom: 0.7rem;
+  }
+
+  .prompt-editor {
+    min-height: 132px;
+    font-size: 0.78rem;
+    line-height: 1.45;
+  }
+
+  .syntax-preview {
+    margin-top: 0.6rem;
+    padding: 0.6rem;
+  }
+
+  .parser-test-strip {
+    margin-top: 0.7rem;
+    padding-top: 0.7rem;
+  }
+
+  .parser-test-strip textarea {
+    min-height: 58px;
+  }
+}
+
 .inline-result {
   margin-top: 0.75rem;
   min-height: 74px;
@@ -1101,8 +1186,13 @@ kbd {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.content-grid {
+  min-height: 0;
+}
+
 .content-scroll {
   min-height: 0;
+  height: calc(100vh - 72px);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
