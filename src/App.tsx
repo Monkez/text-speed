@@ -17,6 +17,7 @@ import {
   MousePointer2,
   Save,
   ScanText,
+  Settings,
   Sparkles,
   TimerReset,
   Trash2,
@@ -59,6 +60,7 @@ import {
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: Sparkles },
+  { id: "general", label: "General Settings", icon: Settings },
   { id: "providers", label: "AI Providers", icon: Bot },
   { id: "commands", label: "Commands", icon: Command },
   { id: "hotkeys", label: "Hotkeys", icon: Keyboard },
@@ -74,6 +76,10 @@ const pageCopy: Record<string, { title: string; description: string }> = {
   providers: {
     title: "AI Providers",
     description: "Cấu hình OpenAI, Gemini, model và API key dùng cho mọi lệnh AI.",
+  },
+  general: {
+    title: "General Settings",
+    description: "Cấu hình ngôn ngữ, hành vi chung và mặc định không phụ thuộc provider.",
   },
   commands: {
     title: "Commands",
@@ -421,10 +427,15 @@ function MainApp() {
                     </div>
                   </div>
                   <div className="quick-grid">
+                    <button className="provider-card" onClick={() => setActiveNav("general")} type="button">
+                      <Settings size={18} />
+                      <span>General Settings</span>
+                      <small>Language pair, fallback target</small>
+                    </button>
                     <button className="provider-card" onClick={() => setActiveNav("providers")} type="button">
                       <Bot size={18} />
                       <span>AI Providers</span>
-                      <small>API key, model, ngôn ngữ ưu tiên</small>
+                      <small>API key, model, provider</small>
                     </button>
                     <button className="provider-card" onClick={() => setActiveNav("commands")} type="button">
                       <Command size={18} />
@@ -444,6 +455,61 @@ function MainApp() {
                   </div>
                 </section>
                 </>
+              )}
+
+              {activeNav === "general" && (
+                <section className="panel">
+                  <div className="section-heading">
+                    <div>
+                      <h2>General Settings</h2>
+                      <p>Ngôn ngữ và các mặc định dùng chung, tách riêng khỏi provider/model/API key.</p>
+                    </div>
+                    <span className="status-pill">Saved with app settings</span>
+                  </div>
+
+                  <section className="translation-card">
+                    <div className="translation-card-head">
+                      <div>
+                        <span>Translation Pair</span>
+                        <strong>{settings.translationLanguageA} ↔ {settings.translationLanguageB}</strong>
+                        <small>Outside pair → {settings.preferredLanguage}</small>
+                      </div>
+                      <Languages size={18} />
+                    </div>
+                    <p>
+                      Nếu input thuộc Language A hoặc B, TextSpeed dịch sang ngôn ngữ còn lại. Nếu input nằm ngoài cặp này, TextSpeed dịch sang Preferred target.
+                    </p>
+                    <div className="translation-pair">
+                      <label className="field">
+                        <span>Language A</span>
+                        <ImeInput
+                          placeholder="Tiếng Việt"
+                          value={settings.translationLanguageA}
+                          onValueChange={(value) => setSettings({ ...settings, translationLanguageA: value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Language B</span>
+                        <ImeInput
+                          placeholder="English"
+                          value={settings.translationLanguageB}
+                          onValueChange={(value) => setSettings({ ...settings, translationLanguageB: value })}
+                        />
+                      </label>
+                    </div>
+                    <label className="field preferred-language-field">
+                      <span>Preferred target when outside pair</span>
+                      <ImeInput
+                        placeholder="Tiếng Việt"
+                        value={settings.preferredLanguage}
+                        onValueChange={(value) => setSettings({ ...settings, preferredLanguage: value })}
+                      />
+                      <small className="field-help">
+                        Ví dụ: input tiếng Pháp với cặp Tiếng Việt ↔ English sẽ được dịch sang {settings.preferredLanguage || "ngôn ngữ này"}.
+                      </small>
+                    </label>
+                  </section>
+                </section>
               )}
 
               {activeNav === "providers" && (
@@ -479,54 +545,6 @@ function MainApp() {
                     </button>
                   ))}
                 </div>
-
-                <section className="translation-card">
-                  <div className="translation-card-head">
-                    <div>
-                      <span>Translation Pair</span>
-                      <strong>{settings.translationLanguageA} ↔ {settings.translationLanguageB}</strong>
-                      <small>Outside pair → {settings.preferredLanguage}</small>
-                    </div>
-                    <Languages size={18} />
-                  </div>
-                  <p>
-                    If input is language A or B, TextSpeed translates to the other side. If input is outside this pair, it translates to the preferred target.
-                  </p>
-                  <div className="translation-pair">
-                    <label className="field">
-                      <span>Language A</span>
-                      <ImeInput
-                        placeholder="Tiếng Việt"
-                        value={settings.translationLanguageA}
-                        onValueChange={(value) =>
-                          setSettings({
-                            ...settings,
-                            translationLanguageA: value,
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Language B</span>
-                      <ImeInput
-                        placeholder="English"
-                        value={settings.translationLanguageB}
-                        onValueChange={(value) => setSettings({ ...settings, translationLanguageB: value })}
-                      />
-                    </label>
-                  </div>
-                  <label className="field preferred-language-field">
-                    <span>Preferred target when outside pair</span>
-                    <ImeInput
-                      placeholder="Tiếng Việt"
-                      value={settings.preferredLanguage}
-                      onValueChange={(value) => setSettings({ ...settings, preferredLanguage: value })}
-                    />
-                    <small className="field-help">
-                      Example: French input with pair Tiếng Việt ↔ English will translate to {settings.preferredLanguage || "this language"}.
-                    </small>
-                  </label>
-                </section>
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <label className="field">
@@ -766,19 +784,34 @@ function MainApp() {
                       <span>Active model</span>
                       <strong>{settings.model}</strong>
                     </div>
+                  </div>
+                  <button className="primary-button mt-3 w-full justify-center" onClick={() => handleAction("translate")} type="button">
+                    <Sparkles size={16} />
+                    Test Provider
+                  </button>
+                </section>
+              )}
+
+              {activeNav === "general" && (
+                <section className="panel">
+                  <div className="section-heading compact">
+                    <h2>Language Routing</h2>
+                    <Languages size={18} />
+                  </div>
+                  <div className="readiness-list">
                     <div>
-                      <span>Translate pair</span>
+                      <span>Preferred pair</span>
                       <strong>{settings.translationLanguageA} ↔ {settings.translationLanguageB}</strong>
                     </div>
                     <div>
                       <span>Outside pair target</span>
                       <strong>{settings.preferredLanguage}</strong>
                     </div>
+                    <div>
+                      <span>Translate actions</span>
+                      <strong>Inline + Floating</strong>
+                    </div>
                   </div>
-                  <button className="primary-button mt-3 w-full justify-center" onClick={() => handleAction("translate")} type="button">
-                    <Sparkles size={16} />
-                    Test Provider
-                  </button>
                 </section>
               )}
 
