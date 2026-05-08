@@ -8,6 +8,12 @@ let floatingWindow;
 let keyboardHook;
 let inlineBusy = false;
 let hotkeyBusy = false;
+const inlineTracker = {
+  buffer: "",
+  slashRun: 0,
+  openedAt: 0,
+  lastKeyAt: 0,
+};
 const systemStatus = ["Electron shell ready"];
 const inlineStatus = ["Inline hook starting"];
 const INLINE_RUNNING_MARKER = "[TextSpeed running...]";
@@ -334,6 +340,117 @@ function comboFromHook(vkCode, ctrl, alt, shift, win) {
   return parts.join(" + ");
 }
 
+function resetInlineTracker() {
+  inlineTracker.buffer = "";
+  inlineTracker.slashRun = 0;
+  inlineTracker.openedAt = 0;
+  inlineTracker.lastKeyAt = 0;
+}
+
+function charFromVk(vkCode, shift) {
+  if (vkCode >= 0x41 && vkCode <= 0x5a) {
+    const letter = String.fromCharCode(vkCode);
+    return shift ? letter : letter.toLowerCase();
+  }
+  if (vkCode >= 0x30 && vkCode <= 0x39) {
+    const shifted = {
+      0x30: ")",
+      0x31: "!",
+      0x32: "@",
+      0x33: "#",
+      0x34: "$",
+      0x35: "%",
+      0x36: "^",
+      0x37: "&",
+      0x38: "*",
+      0x39: "(",
+    };
+    return shift ? shifted[vkCode] : String.fromCharCode(vkCode);
+  }
+  const map = {
+    0x20: " ",
+    0xba: shift ? ":" : ";",
+    0xbb: shift ? "+" : "=",
+    0xbc: shift ? "<" : ",",
+    0xbd: shift ? "_" : "-",
+    0xbe: shift ? ">" : ".",
+    0xbf: shift ? "?" : "/",
+    0xc0: shift ? "~" : "`",
+    0xdb: shift ? "{" : "[",
+    0xdc: shift ? "|" : "\\",
+    0xdd: shift ? "}" : "]",
+    0xde: shift ? '"' : "'",
+  };
+  return map[vkCode] || "";
+}
+
+function shouldProbeInlineFromTracker(vkCode, ctrl, alt, shift, win) {
+  if (ctrl || alt || win) {
+    resetInlineTracker();
+    return false;
+  }
+
+  const now = Date.now();
+  const previousBuffer = inlineTracker.buffer;
+  const previousLastKeyAt = inlineTracker.lastKeyAt;
+  inlineTracker.lastKeyAt = now;
+
+  if (vkCode === 0x08) {
+    inlineTracker.buffer = inlineTracker.buffer.slice(0, -1);
+    inlineTracker.slashRun = 0;
+    return false;
+  }
+
+  if ([0x09, 0x0d, 0x1b, 0x25, 0x26, 0x27, 0x28, 0x2e].includes(vkCode)) {
+    resetInlineTracker();
+    return false;
+  }
+
+  const char = charFromVk(vkCode, shift);
+  if (!char) return false;
+
+  inlineTracker.buffer += char;
+  if (inlineTracker.buffer.length > 600) {
+    inlineTracker.buffer = inlineTracker.buffer.slice(-600);
+  }
+
+  if (char === "/") {
+    inlineTracker.slashRun += 1;
+  } else {
+    inlineTracker.slashRun = 0;
+  }
+
+  if (inlineTracker.slashRun >= 2) {
+    inlineTracker.openedAt = now;
+    return false;
+  }
+
+  if (char !== "/" || !previousBuffer.includes("//")) {
+    return false;
+  }
+
+  if (previousBuffer.endsWith("/")) {
+    return false;
+  }
+
+  if (parseInlineBuffer(inlineTracker.buffer)) {
+    resetInlineTracker();
+    return true;
+  }
+
+  const candidate = inlineTracker.buffer.slice(inlineTracker.buffer.lastIndexOf("//"));
+  const body = candidate.slice(2, -1).trimStart();
+  const commandOnly = /^[A-Za-z0-9_-]+$/.test(body);
+  const hasCommand = /^[A-Za-z0-9_-]+/.test(body);
+  const likelyPasteBeforeTerminator = commandOnly && now - previousLastKeyAt > 180;
+  if (hasCommand && likelyPasteBeforeTerminator) {
+    resetInlineTracker();
+    return true;
+  }
+
+  return false;
+}
+
 async function handleHookHotkey(vkCode, ctrl, alt, shift, win) {
   if (hotkeyBusy) return;
   if ((mainWindow && mainWindow.isFocused()) || (floatingWindow && floatingWindow.isFocused())) return;
@@ -406,6 +523,7 @@ async function handleInlineSlashProbe() {
     originalClipboard = extraction.previous;
     const parsed = parseInlineBuffer(extraction.selected);
     if (!parsed) {
+      await sendKeys("{RIGHT}");
       cleanupClipboard(originalClipboard);
       return;
     }
@@ -413,6 +531,7 @@ async function handleInlineSlashProbe() {
     const command = settings.commands.find((item) => item.enabled && item.name === parsed.command);
     if (!command) {
       pushStatus(inlineStatus, `Inline command disabled or missing: //${parsed.command}`);
+      await sendKeys("{RIGHT}");
       cleanupClipboard(originalClipboard);
       return;
     }
@@ -420,6 +539,7 @@ async function handleInlineSlashProbe() {
     const runningText = replaceLast(extraction.selected, parsed.fullText, INLINE_RUNNING_MARKER);
     if (!runningText) {
       pushStatus(inlineStatus, "Inline replace failed: command text not found");
+      await sendKeys("{RIGHT}");
       cleanupClipboard(originalClipboard);
       return;
     }
@@ -456,7 +576,6 @@ using System.Windows.Forms;
 public class TextSpeedKeyboardHook {
   private const int WH_KEYBOARD_LL = 13;
   private const int WM_KEYUP = 0x0101;
-  private const int VK_OEM_2 = 0xBF;
   private const int VK_CONTROL = 0x11;
   private const int VK_MENU = 0x12;
   private const int VK_SHIFT = 0x10;
@@ -483,16 +602,11 @@ public class TextSpeedKeyboardHook {
   private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam) {
     if (nCode >= 0 && wParam == (IntPtr)WM_KEYUP) {
       int vkCode = Marshal.ReadInt32(lParam);
-      if (vkCode == VK_OEM_2) {
-        Console.WriteLine("SLASH");
-      }
       bool ctrl = IsDown(VK_CONTROL);
       bool alt = IsDown(VK_MENU);
       bool shift = IsDown(VK_SHIFT);
       bool win = IsDown(VK_LWIN) || IsDown(VK_RWIN);
-      if (ctrl || alt || shift || win || (vkCode >= 0x70 && vkCode <= 0x7B)) {
-        Console.WriteLine("KEYUP|" + vkCode + "|" + (ctrl ? "1" : "0") + "|" + (alt ? "1" : "0") + "|" + (shift ? "1" : "0") + "|" + (win ? "1" : "0"));
-      }
+      Console.WriteLine("KEYUP|" + vkCode + "|" + (ctrl ? "1" : "0") + "|" + (alt ? "1" : "0") + "|" + (shift ? "1" : "0") + "|" + (win ? "1" : "0"));
       Console.Out.Flush();
     }
     return CallNextHookEx(hookID, nCode, wParam, lParam);
@@ -527,15 +641,22 @@ Add-Type -TypeDefinition $source -ReferencedAssemblies System.Windows.Forms
       .map((line) => line.trim())
       .filter(Boolean)
       .forEach((line) => {
-        if (line === "SLASH") handleInlineSlashProbe();
         if (line.startsWith("KEYUP|")) {
           const [, vk, ctrl, alt, shift, win] = line.split("|");
+          const vkCode = Number(vk);
+          const ctrlDown = ctrl === "1";
+          const altDown = alt === "1";
+          const shiftDown = shift === "1";
+          const winDown = win === "1";
+          if (shouldProbeInlineFromTracker(vkCode, ctrlDown, altDown, shiftDown, winDown)) {
+            handleInlineSlashProbe();
+          }
           handleHookHotkey(
-            Number(vk),
-            ctrl === "1",
-            alt === "1",
-            shift === "1",
-            win === "1",
+            vkCode,
+            ctrlDown,
+            altDown,
+            shiftDown,
+            winDown,
           );
         }
       });
