@@ -18,6 +18,9 @@ export type AppSettings = {
   translationLanguageB: string;
   provider: "openai" | "gemini";
   model: string;
+  fastModel: string;
+  balancedModel: string;
+  powerfulModel: string;
   openaiApiKey: string;
   geminiApiKey: string;
   popupHotkey: string;
@@ -47,6 +50,8 @@ export type InlineMatch = {
   command: string;
   content: string;
   fullText: string;
+  prefix: "/" | "//" | "///";
+  modelTier: "fast" | "balanced" | "powerful";
 };
 
 export type InlineExecution = {
@@ -54,6 +59,8 @@ export type InlineExecution = {
   action: AiAction;
   input: string;
   output: string;
+  model: string;
+  modelTier: "fast" | "balanced" | "powerful";
   typedLength: number;
 };
 

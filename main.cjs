@@ -25,6 +25,9 @@ const fallbackSettings = {
   translationLanguageB: "English",
   provider: "openai",
   model: "gpt-4.1-mini",
+  fastModel: "gpt-4.1-mini",
+  balancedModel: "gpt-4.1-mini",
+  powerfulModel: "gpt-4.1",
   openaiApiKey: "",
   geminiApiKey: "",
   popupHotkey: "Ctrl + Space",
@@ -56,7 +59,12 @@ function settingsPath() {
 
 function loadSettings() {
   try {
-    return { ...fallbackSettings, ...JSON.parse(fs.readFileSync(settingsPath(), "utf8")) };
+    const loaded = { ...fallbackSettings, ...JSON.parse(fs.readFileSync(settingsPath(), "utf8")) };
+    loaded.fastModel = loaded.fastModel || loaded.model || fallbackSettings.fastModel;
+    loaded.balancedModel = loaded.balancedModel || loaded.model || fallbackSettings.balancedModel;
+    loaded.powerfulModel = loaded.powerfulModel || loaded.model || fallbackSettings.powerfulModel;
+    loaded.model = loaded.model || loaded.balancedModel;
+    return loaded;
   } catch {
     return fallbackSettings;
   }
@@ -64,6 +72,10 @@ function loadSettings() {
 
 function saveSettings(settings) {
   const next = { ...fallbackSettings, ...settings };
+  next.fastModel = next.fastModel || next.model || fallbackSettings.fastModel;
+  next.balancedModel = next.balancedModel || next.model || fallbackSettings.balancedModel;
+  next.powerfulModel = next.powerfulModel || next.model || fallbackSettings.powerfulModel;
+  next.model = next.balancedModel || next.model;
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
   fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2), "utf8");
   registerHotkeys(next);
@@ -73,13 +85,20 @@ function saveSettings(settings) {
 function parseInlineBuffer(buffer) {
   const trimmed = String(buffer || "").trimEnd();
   if (!trimmed.endsWith("/")) return null;
-  const start = trimmed.lastIndexOf("//");
-  if (start < 0) return null;
-  const fullText = trimmed.slice(start);
-  const body = fullText.slice(2, -1).trimStart();
-  const match = body.match(/^(\S+)\s+([\s\S]+)$/);
+  const match = trimmed.match(/(?:^|\s)(\/{1,3})([A-Za-z0-9_-]+)\s+([\s\S]+)\/$/);
   if (!match) return null;
-  return { command: match[1], content: match[2].trim(), fullText };
+  const prefix = match[1];
+  const command = match[2];
+  const content = match[3].trim();
+  if (!content) return null;
+  const modelTier = prefix.length === 1 ? "fast" : prefix.length === 2 ? "balanced" : "powerful";
+  return { command, content, fullText: `${prefix}${command} ${match[3]}/`, prefix, modelTier };
+}
+
+function modelForTier(settings, tier) {
+  if (tier === "fast") return settings.fastModel || settings.model || fallbackSettings.fastModel;
+  if (tier === "powerful") return settings.powerfulModel || settings.model || fallbackSettings.powerfulModel;
+  return settings.balancedModel || settings.model || fallbackSettings.balancedModel;
 }
 
 function replaceLast(source, needle, replacement) {
@@ -167,12 +186,12 @@ function instructionFor(action, settings) {
   return "Rewrite the text professionally, concisely, and politely.";
 }
 
-async function runAi(action, prompt, text, settings) {
+async function runAi(action, prompt, text, settings, modelOverride) {
   const instruction = `${instructionFor(action, settings)}\n${prompt || ""}\n\nText:\n${text}`;
   if (settings.provider === "gemini") {
     const key = settings.geminiApiKey || process.env.GEMINI_API_KEY;
     if (!key) throw new Error("GEMINI_API_KEY is not set");
-    const model = settings.model || "gemini-2.5-flash-lite";
+    const model = modelOverride || settings.model || settings.balancedModel || "gemini-2.5-flash-lite";
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -185,10 +204,11 @@ async function runAi(action, prompt, text, settings) {
 
   const key = settings.openaiApiKey || process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY is not set");
+  const model = modelOverride || settings.model || settings.balancedModel || "gpt-4.1-mini";
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: settings.model || "gpt-4.1-mini", input: instruction }),
+    body: JSON.stringify({ model, input: instruction }),
   });
   const value = await response.json();
   if (!response.ok) throw new Error(JSON.stringify(value));
@@ -440,7 +460,6 @@ function shouldProbeInlineFromTracker(vkCode, ctrl, alt, shift, win) {
 
   const now = Date.now();
   const previousBuffer = inlineTracker.buffer;
-  const previousLastKeyAt = inlineTracker.lastKeyAt;
   inlineTracker.lastKeyAt = now;
 
   if (vkCode === 0x08) {
@@ -468,12 +487,13 @@ function shouldProbeInlineFromTracker(vkCode, ctrl, alt, shift, win) {
     inlineTracker.slashRun = 0;
   }
 
-  if (inlineTracker.slashRun >= 2) {
-    inlineTracker.openedAt = now;
-    return false;
-  }
-
-  if (char !== "/" || !previousBuffer.includes("//") || inlineTracker.openedAt === 0) {
+  if (char !== "/" || !previousBuffer.includes("/") || inlineTracker.openedAt === 0) {
+    if (char === "/" && inlineTracker.slashRun >= 1 && inlineTracker.slashRun <= 3) {
+      inlineTracker.openedAt = now;
+    }
+    if (inlineTracker.slashRun > 3) {
+      resetInlineTracker();
+    }
     return false;
   }
 
@@ -491,11 +511,14 @@ function shouldProbeInlineFromTracker(vkCode, ctrl, alt, shift, win) {
     return true;
   }
 
-  const candidate = inlineTracker.buffer.slice(inlineTracker.buffer.lastIndexOf("//"));
-  const body = candidate.slice(2, -1).trimStart();
-  const commandThenMaybeSpace = /^[A-Za-z0-9_-]+\s*$/.test(body);
-  const likelyPasteBeforeTerminator = commandThenMaybeSpace && now - previousLastKeyAt > 180;
-  if (likelyPasteBeforeTerminator) {
+  if (inlineTracker.slashRun > 3) {
+    resetInlineTracker();
+    return false;
+  }
+
+  const candidateMatch = inlineTracker.buffer.match(/\/{1,3}[A-Za-z0-9_-]*\s*\/$/);
+  const commandThenMaybeSpace = Boolean(candidateMatch);
+  if (commandThenMaybeSpace) {
     resetInlineTracker();
     return true;
   }
@@ -596,10 +619,11 @@ async function handleInlineSlashProbe() {
       return;
     }
 
-    pushStatus(inlineStatus, `Inline running: //${parsed.command}`);
+    const selectedModel = modelForTier(settings, parsed.modelTier);
+    pushStatus(inlineStatus, `Inline running: ${parsed.prefix}${parsed.command} (${parsed.modelTier}: ${selectedModel})`);
     await pasteText(runningText);
 
-    const output = await runAi(command.action, command.prompt, parsed.content, settings);
+    const output = await runAi(command.action, command.prompt, parsed.content, settings, selectedModel);
     const finalText = replaceLast(runningText, INLINE_RUNNING_MARKER, output) || output;
     await sendKeys("^a");
     await delay(100);
@@ -734,8 +758,9 @@ ipcMain.handle("execute_inline_command", async (_event, payload) => {
   if (!parsed || !settings.inlineEnabled) return null;
   const command = settings.commands.find((item) => item.enabled && item.name === parsed.command);
   if (!command) return null;
-  const output = await runAi(command.action, command.prompt, parsed.content, settings);
-  return { command: parsed.command, action: command.action, input: parsed.content, output, typedLength: parsed.fullText.length };
+  const selectedModel = modelForTier(settings, parsed.modelTier);
+  const output = await runAi(command.action, command.prompt, parsed.content, settings, selectedModel);
+  return { command: parsed.command, action: command.action, input: parsed.content, output, model: selectedModel, modelTier: parsed.modelTier, typedLength: parsed.fullText.length };
 });
 ipcMain.handle("run_ai_action", async (_event, payload) => {
   const settings = loadSettings();

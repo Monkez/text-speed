@@ -118,6 +118,12 @@ const actionMeta: Record<AiAction, { icon: typeof Languages; hint: string }> = {
   mail: { icon: Clipboard, hint: "Email" },
 };
 
+function defaultModelsForProvider(provider: AppSettings["provider"]) {
+  return provider === "openai"
+    ? { fastModel: "gpt-4.1-mini", balancedModel: "gpt-4.1-mini", powerfulModel: "gpt-4.1", model: "gpt-4.1-mini" }
+    : { fastModel: "gemini-2.5-flash-lite", balancedModel: "gemini-2.5-flash", powerfulModel: "gemini-2.5-pro", model: "gemini-2.5-flash" };
+}
+
 function App() {
   const isFloatingWindow = new URLSearchParams(window.location.search).get("window") === "floating";
   return isFloatingWindow ? <FloatingWindowApp /> : <MainApp />;
@@ -229,17 +235,17 @@ function MainApp() {
     parseInlineBuffer(inlineBuffer)
       .then((match) => {
         if (!match) {
-          setInlinePreview("Gõ theo mẫu //function nội dung/ để thực thi ngay.");
+          setInlinePreview("Gõ /function nội dung/ cho model nhanh, //function nội dung/ cho model trung bình, ///function nội dung/ cho model mạnh.");
           return;
         }
-        setInlinePreview(`Nhận diện //${match.command}: "${match.content}"`);
+        setInlinePreview(`Nhận diện ${match.prefix}${match.command} (${match.modelTier}): "${match.content}"`);
       })
       .catch(() => setInlinePreview("Parser chỉ hoạt động trong Tauri runtime."));
   }, [inlineBuffer]);
 
   useEffect(() => {
     setProviderTestState("Not tested");
-  }, [settings.provider, settings.model, settings.openaiApiKey, settings.geminiApiKey]);
+  }, [settings.provider, settings.model, settings.fastModel, settings.balancedModel, settings.powerfulModel, settings.openaiApiKey, settings.geminiApiKey]);
 
   async function handleFloatingAction(actionId: string) {
     const actionConfig = settings.floatingActions.find((item) => item.id === actionId);
@@ -267,7 +273,7 @@ function MainApp() {
       }
       setSelectedText(execution.input);
       setResult(execution.output);
-      setInlineResult(`//${execution.command} thay inline command bằng:\n${execution.output}`);
+      setInlineResult(`${execution.modelTier} · ${execution.model}\n${execution.output}`);
     } catch {
       const fallback = localFallback("professional", "gửi file cho anh nhé", settings.translationLanguageA, settings.translationLanguageB, settings.preferredLanguage);
       setResult(fallback);
@@ -356,6 +362,36 @@ function MainApp() {
     }
   }
 
+  function updateModelField(field: "fastModel" | "balancedModel" | "powerfulModel", value: string) {
+    setSettings((current) => ({
+      ...current,
+      [field]: value,
+      model: field === "balancedModel" ? value : current.model,
+    }));
+  }
+
+  function renderModelField(field: "fastModel" | "balancedModel" | "powerfulModel", label: string, hint: string) {
+    const value = settings[field] || settings.model;
+    return (
+      <label className="field">
+        <span>{label}</span>
+        {modelIds.length > 0 ? (
+          <select value={value} onChange={(event) => updateModelField(field, event.target.value)}>
+            {!modelIds.includes(value) && <option value={value}>{value}</option>}
+            {modelIds.map((modelId) => (
+              <option key={`${field}-${modelId}`} value={modelId}>
+                {modelId}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <ImeInput value={value} onValueChange={(next) => updateModelField(field, next)} />
+        )}
+        <small className="field-help">{hint}</small>
+      </label>
+    );
+  }
+
   return (
     <main className="min-h-screen overflow-hidden bg-[#0d0d0d] text-zinc-100">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_18%_14%,rgba(20,184,166,0.16),transparent_28%),radial-gradient(circle_at_78%_8%,rgba(99,102,241,0.14),transparent_26%),linear-gradient(135deg,rgba(255,255,255,0.035),transparent_45%)]" />
@@ -423,7 +459,7 @@ function MainApp() {
                   <div className="metric-card">
                     <span>Provider</span>
                     <strong>{activeProviderReady ? "Ready" : "Needs API key"}</strong>
-                    <small>{settings.provider === "openai" ? "OpenAI" : "Gemini"} · {settings.model}</small>
+                    <small>{settings.provider === "openai" ? "OpenAI" : "Gemini"} · / {settings.fastModel} · // {settings.balancedModel} · /// {settings.powerfulModel}</small>
                   </div>
                   <div className="metric-card">
                     <span>Translate Pair</span>
@@ -433,7 +469,7 @@ function MainApp() {
                   <div className="metric-card">
                     <span>Inline</span>
                     <strong>{inlineReady ? "Ready" : settings.inlineEnabled ? "No active command" : "Disabled"}</strong>
-                    <small>{enabledCommands.length} active commands · //function text/</small>
+                    <small>{enabledCommands.length} active commands · / // /// model tiers</small>
                   </div>
                   <div className="metric-card">
                     <span>Floating Menu</span>
@@ -561,7 +597,7 @@ function MainApp() {
                         setSettings((current) => ({
                           ...current,
                           provider,
-                          model: provider === "openai" ? "gpt-4.1-mini" : "gemini-1.5-flash",
+                          ...defaultModelsForProvider(provider),
                         }));
                       }}
                       type="button"
@@ -573,51 +609,37 @@ function MainApp() {
                   ))}
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <label className="field">
-                    <span>Model</span>
-                    <div className="model-picker">
-                      {modelIds.length > 0 ? (
-                        <select
-                          value={settings.model}
-                          onChange={(event) => setSettings({ ...settings, model: event.target.value })}
-                        >
-                          {!modelIds.includes(settings.model) && (
-                            <option value={settings.model}>{settings.model}</option>
-                          )}
-                          {modelIds.map((modelId) => (
-                            <option key={modelId} value={modelId}>
-                              {modelId}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <ImeInput
-                          value={settings.model}
-                          onValueChange={(value) => setSettings({ ...settings, model: value })}
-                        />
-                      )}
-                      <button
-                        className="ghost-button model-fetch-button"
-                        disabled={!activeProviderReady || modelFetchState === "Loading"}
-                        onClick={handleFetchModelIds}
-                        type="button"
-                      >
-                        <RefreshCw size={15} className={modelFetchState === "Loading" ? "spin-icon" : ""} />
-                        Get model IDs
-                      </button>
+                <div className="mt-4">
+                  <div className="model-tier-head">
+                    <div>
+                      <h3>Inline model tiers</h3>
+                      <p>/ gọi model nhanh, // gọi model trung bình, /// gọi model mạnh.</p>
                     </div>
-                    <small
-                      className={
-                        modelFetchState.toLowerCase().includes("error") ||
-                        modelFetchState.toLowerCase().includes("failed")
-                          ? "field-error"
-                          : "field-help"
-                      }
+                    <button
+                      className="ghost-button model-fetch-button"
+                      disabled={!activeProviderReady || modelFetchState === "Loading"}
+                      onClick={handleFetchModelIds}
+                      type="button"
                     >
-                      {activeProviderReady ? modelFetchState : "Add the active provider API key first"}
-                    </small>
-                  </label>
+                      <RefreshCw size={15} className={modelFetchState === "Loading" ? "spin-icon" : ""} />
+                      Get model IDs
+                    </button>
+                  </div>
+                  <div className="model-tier-grid">
+                    {renderModelField("fastModel", "Fast · /function", "Dùng cho lệnh nhẹ cần phản hồi nhanh.")}
+                    {renderModelField("balancedModel", "Balanced · //function", "Mặc định cho floating actions và test provider.")}
+                    {renderModelField("powerfulModel", "Powerful · ///function", "Dùng cho tác vụ khó, cần chất lượng cao hơn.")}
+                  </div>
+                  <small
+                    className={
+                      modelFetchState.toLowerCase().includes("error") ||
+                      modelFetchState.toLowerCase().includes("failed")
+                        ? "field-error"
+                        : "field-help"
+                    }
+                  >
+                    {activeProviderReady ? modelFetchState : "Add the active provider API key first"}
+                  </small>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <label className="field">
@@ -720,7 +742,7 @@ function MainApp() {
 
                 <div className="hotkey-note">
                   <Keyboard size={17} />
-                  <span>Hotkey cần có ít nhất Ctrl, Alt hoặc Windows để tránh xung đột khi gõ. Inline command giữ cố định cú pháp <code>//function text/</code>.</span>
+                  <span>Hotkey cần có ít nhất Ctrl, Alt hoặc Windows để tránh xung đột khi gõ. Inline command dùng <code>/function text/</code>, <code>//function text/</code>, hoặc <code>///function text/</code> để chọn model.</span>
                 </div>
               </section>
               )}
@@ -810,8 +832,16 @@ function MainApp() {
                       <strong>{activeProviderReady ? "Configured" : "Missing"}</strong>
                     </div>
                     <div>
-                      <span>Active model</span>
-                      <strong>{settings.model}</strong>
+                      <span>Fast model · /</span>
+                      <strong>{settings.fastModel}</strong>
+                    </div>
+                    <div>
+                      <span>Balanced model · //</span>
+                      <strong>{settings.balancedModel}</strong>
+                    </div>
+                    <div>
+                      <span>Powerful model · ///</span>
+                      <strong>{settings.powerfulModel}</strong>
                     </div>
                   </div>
                   <button
@@ -869,7 +899,7 @@ function MainApp() {
                     </div>
                     <div>
                       <span>Inline trigger</span>
-                      <strong>//function text/</strong>
+                      <strong>/ · // · /// function text/</strong>
                     </div>
                   </div>
                 </section>
@@ -1466,7 +1496,7 @@ function CommandsPanel({
               onClick={() => setSelectedIndex(index)}
               type="button"
             >
-              <span className="function-command">//{command.name || "unnamed"}</span>
+              <span className="function-command">/{command.name || "unnamed"}</span>
               <strong>{command.label || "Untitled function"}</strong>
               <small>{command.action}</small>
               <i className={command.enabled ? "dot-on" : "dot-off"} />
@@ -1479,7 +1509,7 @@ function CommandsPanel({
             <>
               <div className="function-editor-head">
                 <div>
-                  <span className="function-command">//{selectedCommand.name || "unnamed"}</span>
+                  <span className="function-command">/{selectedCommand.name || "unnamed"}</span>
                   <h3>{selectedCommand.label || "Untitled function"}</h3>
                 </div>
                 <div className="command-toolbar">
@@ -1502,7 +1532,7 @@ function CommandsPanel({
                       className="code-input"
                       value={selectedCommand.name}
                       onValueChange={(value) =>
-                        updateSelectedCommand({ name: value.replace(/^\/\//, "").replace(/\/$/, "").trim() })
+                        updateSelectedCommand({ name: value.replace(/^\/{1,3}/, "").replace(/\/$/, "").trim() })
                       }
                     />
                   </div>
@@ -1552,7 +1582,7 @@ function CommandsPanel({
 
               <div className="syntax-preview">
                 <span>Use anywhere</span>
-                <code>//{selectedCommand.name || "function"} nội dung cần xử lý/</code>
+                <code>/{selectedCommand.name || "function"} nhanh/ · //{selectedCommand.name || "function"} trung bình/ · ///{selectedCommand.name || "function"} mạnh/</code>
               </div>
             </>
           ) : (
