@@ -199,6 +199,46 @@ button {
   gap: 0.5rem;
 }
 
+.translation-card {
+  margin-top: 1rem;
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(135deg, rgba(20, 184, 166, 0.13), rgba(255, 255, 255, 0.025)),
+    rgba(255, 255, 255, 0.035);
+  padding: 0.9rem;
+}
+
+.translation-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.45rem;
+}
+
+.translation-card-head span {
+  display: block;
+  color: rgb(161 161 170);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.translation-card-head strong {
+  display: block;
+  margin-top: 0.12rem;
+  color: rgb(245 245 245);
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.translation-card p {
+  margin: 0 0 0.75rem;
+  color: rgb(113 113 122);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
 .model-fetch-button {
   min-width: 142px;
   justify-content: center;

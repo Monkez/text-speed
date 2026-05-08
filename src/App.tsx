@@ -393,6 +393,11 @@ function MainApp() {
                     <small>{settings.provider === "openai" ? "OpenAI" : "Gemini"} · {settings.model}</small>
                   </div>
                   <div className="metric-card">
+                    <span>Translate Pair</span>
+                    <strong>{settings.translationLanguageA} ↔ {settings.translationLanguageB}</strong>
+                    <small>Auto-detect source, translate to the other language</small>
+                  </div>
+                  <div className="metric-card">
                     <span>Inline</span>
                     <strong>{inlineReady ? "Ready" : settings.inlineEnabled ? "No active command" : "Disabled"}</strong>
                     <small>{enabledCommands.length} active commands · //function text/</small>
@@ -474,11 +479,23 @@ function MainApp() {
                     </button>
                   ))}
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
+
+                <section className="translation-card">
+                  <div className="translation-card-head">
+                    <div>
+                      <span>Translation Pair</span>
+                      <strong>{settings.translationLanguageA} ↔ {settings.translationLanguageB}</strong>
+                    </div>
+                    <Languages size={18} />
+                  </div>
+                  <p>
+                    Translate actions auto-detect whether the source is language A or B, then translate to the other side.
+                  </p>
                   <div className="translation-pair">
                     <label className="field">
                       <span>Language A</span>
                       <ImeInput
+                        placeholder="Tiếng Việt"
                         value={settings.translationLanguageA}
                         onValueChange={(value) =>
                           setSettings({
@@ -492,11 +509,15 @@ function MainApp() {
                     <label className="field">
                       <span>Language B</span>
                       <ImeInput
+                        placeholder="English"
                         value={settings.translationLanguageB}
                         onValueChange={(value) => setSettings({ ...settings, translationLanguageB: value })}
                       />
                     </label>
                   </div>
+                </section>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
                   <label className="field">
                     <span>Model</span>
                     <div className="model-picker">
@@ -733,6 +754,10 @@ function MainApp() {
                     <div>
                       <span>Active model</span>
                       <strong>{settings.model}</strong>
+                    </div>
+                    <div>
+                      <span>Translate pair</span>
+                      <strong>{settings.translationLanguageA} ↔ {settings.translationLanguageB}</strong>
                     </div>
                   </div>
                   <button className="primary-button mt-3 w-full justify-center" onClick={() => handleAction("translate")} type="button">
