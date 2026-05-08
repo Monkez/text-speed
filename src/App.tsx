@@ -37,7 +37,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { fallbackSettings } from "./data/fallback";
 import {
   type AiAction,
@@ -50,6 +49,7 @@ import {
   getSettings,
   hideFloatingWindow,
   hideMainWindow,
+  listenTextSpeedEvent,
   parseInlineBuffer,
   readClipboardText,
   runAiAction,
@@ -166,7 +166,7 @@ function MainApp() {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    listen<{ action: "popup" | "ocr"; hotkey: string }>("textspeed-hotkey", async (event) => {
+    listenTextSpeedEvent<{ action: "popup" | "ocr"; hotkey: string }>("textspeed-hotkey", async (event) => {
       if (event.payload.action === "ocr") {
         setActiveNav("ocr");
         setHotkeyPopupOpen(false);
@@ -990,7 +990,7 @@ function FloatingWindowApp() {
       .catch(() => undefined);
 
     let unlisten: (() => void) | undefined;
-    listen<{ action: "popup" | "ocr"; hotkey: string }>("textspeed-hotkey", async (event) => {
+    listenTextSpeedEvent<{ action: "popup" | "ocr"; hotkey: string }>("textspeed-hotkey", async (event) => {
       if (event.payload.action !== "popup") return;
       setShortcut(event.payload.hotkey);
       setResult("");

@@ -1,8 +1,16 @@
-const { app, BrowserWindow, clipboard, ipcMain } = require("electron");
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen } = require("electron");
+const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
 let mainWindow;
+let floatingWindow;
+let keyboardHook;
+let inlineBusy = false;
+let hotkeyBusy = false;
+const systemStatus = ["Electron shell ready"];
+const inlineStatus = ["Inline hook starting"];
+const INLINE_RUNNING_MARKER = "[TextSpeed running...]";
 
 const fallbackSettings = {
   preferredLanguage: "Tiếng Việt",
@@ -51,6 +59,7 @@ function saveSettings(settings) {
   const next = { ...fallbackSettings, ...settings };
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
   fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2), "utf8");
+  registerHotkeys(next);
   return next;
 }
 
@@ -64,6 +73,71 @@ function parseInlineBuffer(buffer) {
   const match = body.match(/^(\S+)\s+([\s\S]+)$/);
   if (!match) return null;
   return { command: match[1], content: match[2].trim(), fullText };
+}
+
+function replaceLast(source, needle, replacement) {
+  const index = source.lastIndexOf(needle);
+  if (index < 0) return null;
+  return `${source.slice(0, index)}${replacement}${source.slice(index + needle.length)}`;
+}
+
+function pushStatus(target, value) {
+  const timestamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
+  target.push(`[${timestamp}] ${value}`);
+  while (target.length > 60) target.shift();
+  console.log(value);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sendKeys(keys) {
+  return new Promise((resolve, reject) => {
+    const escaped = keys.replace(/'/g, "''");
+    const child = spawn("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `$ws = New-Object -ComObject WScript.Shell; Start-Sleep -Milliseconds 25; $ws.SendKeys('${escaped}')`,
+    ], { windowsHide: true });
+    child.on("error", reject);
+    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`SendKeys failed: ${code}`))));
+  });
+}
+
+async function copySelectionToClipboard() {
+  const previous = clipboard.readText();
+  clipboard.writeText("");
+  await delay(40);
+  await sendKeys("^c");
+  await delay(160);
+  const selected = clipboard.readText();
+  return { selected, previous };
+}
+
+async function selectAllAndCopyFocusedText() {
+  const previous = clipboard.readText();
+  clipboard.writeText("");
+  await delay(40);
+  await sendKeys("^a");
+  await delay(100);
+  await sendKeys("^c");
+  await delay(180);
+  const selected = clipboard.readText();
+  return { selected, previous };
+}
+
+async function pasteText(text) {
+  clipboard.writeText(text);
+  await delay(170);
+  await sendKeys("^v");
+  await delay(220);
+}
+
+function cleanupClipboard(previous) {
+  setTimeout(() => clipboard.writeText(previous || ""), 2000);
 }
 
 function instructionFor(action, settings) {
@@ -131,12 +205,355 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "dist", "index.html"));
 }
 
+function createFloatingWindow() {
+  if (floatingWindow && !floatingWindow.isDestroyed()) return floatingWindow;
+  floatingWindow = new BrowserWindow({
+    width: 330,
+    height: 300,
+    resizable: false,
+    movable: true,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    show: false,
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, "build", "icon.ico"),
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, "preload.cjs"),
+    },
+  });
+  floatingWindow.loadFile(path.join(__dirname, "dist", "index.html"), { query: { window: "floating" } });
+  floatingWindow.on("blur", () => {
+    if (floatingWindow && !floatingWindow.isDestroyed()) floatingWindow.hide();
+  });
+  return floatingWindow;
+}
+
+function emitHotkey(action, hotkey) {
+  const payload = { action, hotkey };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("textspeed-hotkey", payload);
+  if (floatingWindow && !floatingWindow.isDestroyed()) floatingWindow.webContents.send("textspeed-hotkey", payload);
+}
+
+async function openFloatingMenu(hotkey) {
+  pushStatus(systemStatus, `Hotkey: floating menu (${hotkey})`);
+  let previous = clipboard.readText();
+  try {
+    const capture = await copySelectionToClipboard();
+    previous = capture.previous;
+  } catch (error) {
+    pushStatus(systemStatus, `Floating copy failed: ${error.message}`);
+  }
+
+  const point = screen.getCursorScreenPoint();
+  const popup = createFloatingWindow();
+  popup.setPosition(point.x + 12, point.y + 12, false);
+  popup.show();
+  popup.focus();
+  emitHotkey("popup", hotkey);
+  cleanupClipboard(previous);
+}
+
+function toElectronAccelerator(value) {
+  const keyMap = {
+    ctrl: "CommandOrControl",
+    control: "CommandOrControl",
+    alt: "Alt",
+    shift: "Shift",
+    win: "Super",
+    windows: "Super",
+    meta: "Super",
+    cmd: "Command",
+    command: "Command",
+    space: "Space",
+    esc: "Esc",
+    escape: "Esc",
+  };
+  return String(value || "")
+    .split("+")
+    .map((part) => {
+      const trimmed = part.trim();
+      return keyMap[trimmed.toLowerCase()] || trimmed.toUpperCase();
+    })
+    .filter(Boolean)
+    .join("+");
+}
+
+function hotkeyId(value) {
+  return String(value || "")
+    .split("+")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean)
+    .map((part) => {
+      if (part === "control") return "ctrl";
+      if (["windows", "meta", "cmd", "command"].includes(part)) return "win";
+      if (part === "escape") return "esc";
+      return part;
+    })
+    .join("+");
+}
+
+function vkLabel(vkCode) {
+  if (vkCode >= 0x41 && vkCode <= 0x5a) return String.fromCharCode(vkCode);
+  if (vkCode >= 0x30 && vkCode <= 0x39) return String.fromCharCode(vkCode);
+  if (vkCode >= 0x70 && vkCode <= 0x7b) return `F${vkCode - 0x6f}`;
+  const labels = {
+    0x08: "Backspace",
+    0x09: "Tab",
+    0x0d: "Enter",
+    0x1b: "Esc",
+    0x20: "Space",
+    0x21: "PageUp",
+    0x22: "PageDown",
+    0x23: "End",
+    0x24: "Home",
+    0x25: "Left",
+    0x26: "Up",
+    0x27: "Right",
+    0x28: "Down",
+    0x2d: "Insert",
+    0x2e: "Delete",
+    0xbf: "/",
+  };
+  return labels[vkCode] || "";
+}
+
+function comboFromHook(vkCode, ctrl, alt, shift, win) {
+  const key = vkLabel(vkCode);
+  if (!key) return "";
+  const parts = [];
+  if (ctrl) parts.push("Ctrl");
+  if (alt) parts.push("Alt");
+  if (shift) parts.push("Shift");
+  if (win) parts.push("Win");
+  if (parts.length === 0 && !key.startsWith("F")) return "";
+  parts.push(key);
+  return parts.join(" + ");
+}
+
+async function handleHookHotkey(vkCode, ctrl, alt, shift, win) {
+  if (hotkeyBusy) return;
+  if ((mainWindow && mainWindow.isFocused()) || (floatingWindow && floatingWindow.isFocused())) return;
+
+  const combo = comboFromHook(vkCode, ctrl, alt, shift, win);
+  if (!combo) return;
+
+  const settings = loadSettings();
+  if (hotkeyId(combo) === hotkeyId(settings.popupHotkey)) {
+    hotkeyBusy = true;
+    try {
+      await openFloatingMenu(settings.popupHotkey);
+    } finally {
+      setTimeout(() => {
+        hotkeyBusy = false;
+      }, 350);
+    }
+    return;
+  }
+
+  if (hotkeyId(combo) === hotkeyId(settings.ocrHotkey)) {
+    hotkeyBusy = true;
+    pushStatus(systemStatus, `Hotkey: OCR (${settings.ocrHotkey})`);
+    emitHotkey("ocr", settings.ocrHotkey);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    setTimeout(() => {
+      hotkeyBusy = false;
+    }, 350);
+  }
+}
+
+function registerHotkeys(settings = loadSettings()) {
+  if (!app.isReady()) return;
+  globalShortcut.unregisterAll();
+  const popupAccelerator = toElectronAccelerator(settings.popupHotkey);
+  if (popupAccelerator) {
+    const ok = globalShortcut.register(popupAccelerator, () => openFloatingMenu(settings.popupHotkey));
+    pushStatus(systemStatus, ok ? `Registered floating hotkey: ${settings.popupHotkey}` : `Failed to register floating hotkey: ${settings.popupHotkey}`);
+  }
+
+  const ocrAccelerator = toElectronAccelerator(settings.ocrHotkey);
+  if (ocrAccelerator) {
+    const ok = globalShortcut.register(ocrAccelerator, () => {
+      pushStatus(systemStatus, `Hotkey: OCR (${settings.ocrHotkey})`);
+      emitHotkey("ocr", settings.ocrHotkey);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+    pushStatus(systemStatus, ok ? `Registered OCR hotkey: ${settings.ocrHotkey}` : `Failed to register OCR hotkey: ${settings.ocrHotkey}`);
+  }
+}
+
+async function handleInlineSlashProbe() {
+  if (inlineBusy) return;
+  if ((mainWindow && mainWindow.isFocused()) || (floatingWindow && floatingWindow.isFocused())) return;
+
+  const settings = loadSettings();
+  if (!settings.inlineEnabled) return;
+  inlineBusy = true;
+
+  let originalClipboard = clipboard.readText();
+  try {
+    pushStatus(inlineStatus, "Inline slash probe");
+    const extraction = await selectAllAndCopyFocusedText();
+    originalClipboard = extraction.previous;
+    const parsed = parseInlineBuffer(extraction.selected);
+    if (!parsed) {
+      cleanupClipboard(originalClipboard);
+      return;
+    }
+
+    const command = settings.commands.find((item) => item.enabled && item.name === parsed.command);
+    if (!command) {
+      pushStatus(inlineStatus, `Inline command disabled or missing: //${parsed.command}`);
+      cleanupClipboard(originalClipboard);
+      return;
+    }
+
+    const runningText = replaceLast(extraction.selected, parsed.fullText, INLINE_RUNNING_MARKER);
+    if (!runningText) {
+      pushStatus(inlineStatus, "Inline replace failed: command text not found");
+      cleanupClipboard(originalClipboard);
+      return;
+    }
+
+    pushStatus(inlineStatus, `Inline running: //${parsed.command}`);
+    await pasteText(runningText);
+
+    const output = await runAi(command.action, command.prompt, parsed.content, settings);
+    const finalText = replaceLast(runningText, INLINE_RUNNING_MARKER, output) || output;
+    await sendKeys("^a");
+    await delay(100);
+    await pasteText(finalText);
+    pushStatus(inlineStatus, "Inline done");
+    cleanupClipboard(originalClipboard);
+  } catch (error) {
+    pushStatus(inlineStatus, `Inline failed: ${error.message}`);
+    cleanupClipboard(originalClipboard);
+  } finally {
+    await delay(150);
+    inlineBusy = false;
+  }
+}
+
+function startKeyboardHook() {
+  if (keyboardHook) return;
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+$source = @"
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+public class TextSpeedKeyboardHook {
+  private const int WH_KEYBOARD_LL = 13;
+  private const int WM_KEYUP = 0x0101;
+  private const int VK_OEM_2 = 0xBF;
+  private const int VK_CONTROL = 0x11;
+  private const int VK_MENU = 0x12;
+  private const int VK_SHIFT = 0x10;
+  private const int VK_LWIN = 0x5B;
+  private const int VK_RWIN = 0x5C;
+  private static LowLevelKeyboardProc proc = HookCallback;
+  private static IntPtr hookID = IntPtr.Zero;
+
+  public static void Run() {
+    hookID = SetHook(proc);
+    Application.Run();
+    UnhookWindowsHookEx(hookID);
+  }
+
+  private static IntPtr SetHook(LowLevelKeyboardProc proc) {
+    using (Process curProcess = Process.GetCurrentProcess())
+    using (ProcessModule curModule = curProcess.MainModule) {
+      return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
+    }
+  }
+
+  private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+  private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam) {
+    if (nCode >= 0 && wParam == (IntPtr)WM_KEYUP) {
+      int vkCode = Marshal.ReadInt32(lParam);
+      if (vkCode == VK_OEM_2) {
+        Console.WriteLine("SLASH");
+      }
+      bool ctrl = IsDown(VK_CONTROL);
+      bool alt = IsDown(VK_MENU);
+      bool shift = IsDown(VK_SHIFT);
+      bool win = IsDown(VK_LWIN) || IsDown(VK_RWIN);
+      if (ctrl || alt || shift || win || (vkCode >= 0x70 && vkCode <= 0x7B)) {
+        Console.WriteLine("KEYUP|" + vkCode + "|" + (ctrl ? "1" : "0") + "|" + (alt ? "1" : "0") + "|" + (shift ? "1" : "0") + "|" + (win ? "1" : "0"));
+      }
+      Console.Out.Flush();
+    }
+    return CallNextHookEx(hookID, nCode, wParam, lParam);
+  }
+
+  private static bool IsDown(int vkCode) {
+    return (GetAsyncKeyState(vkCode) & 0x8000) != 0;
+  }
+
+  [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+  [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+  [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+  [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  private static extern IntPtr GetModuleHandle(string lpModuleName);
+  [DllImport("user32.dll")]
+  private static extern short GetAsyncKeyState(int vKey);
+}
+"@
+Add-Type -TypeDefinition $source -ReferencedAssemblies System.Windows.Forms
+[TextSpeedKeyboardHook]::Run()
+`;
+  keyboardHook = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+    windowsHide: true,
+  });
+  keyboardHook.stdout.on("data", (chunk) => {
+    String(chunk)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        if (line === "SLASH") handleInlineSlashProbe();
+        if (line.startsWith("KEYUP|")) {
+          const [, vk, ctrl, alt, shift, win] = line.split("|");
+          handleHookHotkey(
+            Number(vk),
+            ctrl === "1",
+            alt === "1",
+            shift === "1",
+            win === "1",
+          );
+        }
+      });
+  });
+  keyboardHook.stderr.on("data", (chunk) => pushStatus(inlineStatus, `Hook error: ${String(chunk).trim()}`));
+  keyboardHook.on("exit", (code) => {
+    pushStatus(inlineStatus, `Keyboard hook stopped: ${code}`);
+    keyboardHook = undefined;
+  });
+  pushStatus(inlineStatus, "Keyboard hook listening for /");
+}
+
 ipcMain.handle("get_settings", () => loadSettings());
 ipcMain.handle("save_settings", (_event, payload) => saveSettings(payload.settings));
 ipcMain.handle("read_clipboard_text", () => clipboard.readText());
 ipcMain.handle("write_clipboard_text", (_event, payload) => clipboard.writeText(payload.text || ""));
 ipcMain.handle("hide_main_window", () => mainWindow?.hide());
-ipcMain.handle("hide_floating_window", () => undefined);
+ipcMain.handle("hide_floating_window", () => floatingWindow?.hide());
 ipcMain.handle("parse_inline_buffer", (_event, payload) => parseInlineBuffer(payload.buffer));
 ipcMain.handle("execute_inline_command", async (_event, payload) => {
   const settings = loadSettings();
@@ -173,11 +590,19 @@ ipcMain.handle("get_model_ids", async (_event, payload) => {
   return (value.data || []).map((model) => model.id).filter(Boolean);
 });
 ipcMain.handle("get_runtime_status", () => ({
-  system: ["Electron shell ready", "Chromium IME input enabled", "Rust hook sidecar migration pending"],
-  inline: ["Settings UI is running outside Tauri WebView2"],
+  system: systemStatus,
+  inline: inlineStatus,
 }));
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  registerHotkeys(loadSettings());
+  startKeyboardHook();
+});
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+  if (keyboardHook && !keyboardHook.killed) keyboardHook.kill();
 });

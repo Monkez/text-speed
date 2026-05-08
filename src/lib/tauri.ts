@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen as tauriListen } from "@tauri-apps/api/event";
 
 declare global {
   interface Window {
     textspeed?: {
       invoke<T>(channel: string, payload?: Record<string, unknown>): Promise<T>;
+      on<T>(channel: string, callback: (payload: T) => void): () => void;
     };
   }
 }
@@ -113,4 +115,14 @@ function call<T>(channel: string, payload?: Record<string, unknown>): Promise<T>
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   return call<RuntimeStatus>("get_runtime_status");
+}
+
+export async function listenTextSpeedEvent<T>(
+  channel: string,
+  callback: (event: { payload: T }) => void,
+): Promise<() => void> {
+  if (window.textspeed?.on) {
+    return window.textspeed.on<T>(channel, (payload) => callback({ payload }));
+  }
+  return tauriListen<T>(channel, callback);
 }
