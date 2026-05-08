@@ -1,5 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
+declare global {
+  interface Window {
+    textspeed?: {
+      invoke<T>(channel: string, payload?: Record<string, unknown>): Promise<T>;
+    };
+  }
+}
+
 export type AiAction = "translate" | "summarize" | "reply" | "explain" | "fix" | "professional" | "mail";
 
 export type AppSettings = {
@@ -48,47 +56,47 @@ export type InlineExecution = {
 };
 
 export async function getSettings(): Promise<AppSettings> {
-  return invoke<AppSettings>("get_settings");
+  return call<AppSettings>("get_settings");
 }
 
 export async function saveSettings(settings: AppSettings): Promise<AppSettings> {
-  return invoke<AppSettings>("save_settings", { settings });
+  return call<AppSettings>("save_settings", { settings });
 }
 
 export async function runAiAction(action: AiAction, text: string): Promise<string> {
-  return invoke<string>("run_ai_action", { action, text });
+  return call<string>("run_ai_action", { action, text });
 }
 
 export async function runFloatingAction(actionId: string, text: string): Promise<string> {
-  return invoke<string>("run_floating_action", { actionId, text });
+  return call<string>("run_floating_action", { actionId, text });
 }
 
 export async function getModelIds(settings: AppSettings): Promise<string[]> {
-  return invoke<string[]>("get_model_ids", { settings });
+  return call<string[]>("get_model_ids", { settings });
 }
 
 export async function readClipboardText(): Promise<string> {
-  return invoke<string>("read_clipboard_text");
+  return call<string>("read_clipboard_text");
 }
 
 export async function writeClipboardText(text: string): Promise<void> {
-  return invoke<void>("write_clipboard_text", { text });
+  return call<void>("write_clipboard_text", { text });
 }
 
 export async function hideFloatingWindow(): Promise<void> {
-  return invoke<void>("hide_floating_window");
+  return call<void>("hide_floating_window");
 }
 
 export async function hideMainWindow(): Promise<void> {
-  return invoke<void>("hide_main_window");
+  return call<void>("hide_main_window");
 }
 
 export async function parseInlineBuffer(buffer: string): Promise<InlineMatch | null> {
-  return invoke<InlineMatch | null>("parse_inline_buffer", { buffer });
+  return call<InlineMatch | null>("parse_inline_buffer", { buffer });
 }
 
 export async function executeInlineCommand(buffer: string): Promise<InlineExecution | null> {
-  return invoke<InlineExecution | null>("execute_inline_command", { buffer });
+  return call<InlineExecution | null>("execute_inline_command", { buffer });
 }
 
 export type RuntimeStatus = {
@@ -96,6 +104,13 @@ export type RuntimeStatus = {
   inline: string[];
 };
 
+function call<T>(channel: string, payload?: Record<string, unknown>): Promise<T> {
+  if (window.textspeed?.invoke) {
+    return window.textspeed.invoke<T>(channel, payload);
+  }
+  return invoke<T>(channel, payload);
+}
+
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
-  return invoke<RuntimeStatus>("get_runtime_status");
+  return call<RuntimeStatus>("get_runtime_status");
 }
