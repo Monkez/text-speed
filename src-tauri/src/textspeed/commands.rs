@@ -61,6 +61,15 @@ pub fn hide_main_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn edit_text_native(
+    title: String,
+    value: String,
+    multiline: bool,
+) -> Result<Option<String>, String> {
+    super::native_editor::edit_text(title, value, multiline)
+}
+
+#[tauri::command]
 pub fn parse_inline_buffer(buffer: String) -> Option<InlineMatch> {
     inline::parse_inline_buffer(&buffer)
 }
@@ -145,8 +154,7 @@ pub async fn run_floating_action(
         return Err(format!("Floating action disabled or missing: {action_id}"));
     };
 
-    let (output, _) =
-        ai::run_custom_prompt(action.action, action.prompt, text, settings).await?;
+    let (output, _) = ai::run_custom_prompt(action.action, action.prompt, text, settings).await?;
     Ok(output)
 }
 

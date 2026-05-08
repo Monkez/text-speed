@@ -44,6 +44,7 @@ import {
   type FloatingAction,
   type InlineCommand,
   executeInlineCommand,
+  editTextNative,
   getModelIds,
   getRuntimeStatus,
   getSettings,
@@ -1011,6 +1012,7 @@ type ImeInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "onChange" | "v
 function ImeInput({ onValueChange, value, ...props }: ImeInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
+  const editing = useRef(false);
 
   function commit(next: string) {
     if (next !== value) {
@@ -1029,6 +1031,7 @@ function ImeInput({ onValueChange, value, ...props }: ImeInputProps) {
     <input
       {...props}
       defaultValue={value}
+      readOnly
       onInput={(event) => {
         props.onInput?.(event);
       }}
@@ -1045,6 +1048,21 @@ function ImeInput({ onValueChange, value, ...props }: ImeInputProps) {
         commit(event.currentTarget.value);
         props.onBlur?.(event);
       }}
+      onFocus={async (event) => {
+        props.onFocus?.(event);
+        if (editing.current) return;
+        editing.current = true;
+        event.currentTarget.blur();
+        try {
+          const next = await editTextNative(nativeEditorTitle(props.placeholder, "TextSpeed input"), event.currentTarget.value, false);
+          if (next !== null && inputRef.current) {
+            inputRef.current.value = next;
+            commit(next);
+          }
+        } finally {
+          editing.current = false;
+        }
+      }}
       ref={inputRef}
     />
   );
@@ -1058,6 +1076,7 @@ type ImeTextareaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onCha
 function ImeTextarea({ onValueChange, value, ...props }: ImeTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
+  const editing = useRef(false);
 
   function commit(next: string) {
     if (next !== value) {
@@ -1076,6 +1095,7 @@ function ImeTextarea({ onValueChange, value, ...props }: ImeTextareaProps) {
     <textarea
       {...props}
       defaultValue={value}
+      readOnly
       onInput={(event) => {
         props.onInput?.(event);
       }}
@@ -1092,9 +1112,28 @@ function ImeTextarea({ onValueChange, value, ...props }: ImeTextareaProps) {
         commit(event.currentTarget.value);
         props.onBlur?.(event);
       }}
+      onFocus={async (event) => {
+        props.onFocus?.(event);
+        if (editing.current) return;
+        editing.current = true;
+        event.currentTarget.blur();
+        try {
+          const next = await editTextNative("TextSpeed editor", event.currentTarget.value, true);
+          if (next !== null && textareaRef.current) {
+            textareaRef.current.value = next;
+            commit(next);
+          }
+        } finally {
+          editing.current = false;
+        }
+      }}
       ref={textareaRef}
     />
   );
+}
+
+function nativeEditorTitle(placeholder: string | undefined, fallback: string) {
+  return placeholder?.trim() || fallback;
 }
 
 type HotkeyRecorderProps = {
