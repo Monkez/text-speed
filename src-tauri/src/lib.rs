@@ -27,7 +27,6 @@ pub fn run() {
             textspeed::commands::write_clipboard_text,
             textspeed::commands::hide_floating_window,
             textspeed::commands::hide_main_window,
-            textspeed::commands::edit_text_native,
             textspeed::commands::parse_inline_buffer,
             textspeed::commands::execute_inline_command,
             textspeed::commands::run_ai_action,

@@ -83,10 +83,6 @@ export async function hideMainWindow(): Promise<void> {
   return invoke<void>("hide_main_window");
 }
 
-export async function editTextNative(title: string, value: string, multiline: boolean): Promise<string | null> {
-  return invoke<string | null>("edit_text_native", { title, value, multiline });
-}
-
 export async function parseInlineBuffer(buffer: string): Promise<InlineMatch | null> {
   return invoke<InlineMatch | null>("parse_inline_buffer", { buffer });
 }
