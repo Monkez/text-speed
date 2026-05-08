@@ -21,10 +21,12 @@
       "output": "release-electron"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "files": [
       "dist/**/*",
+      "build/icon.ico",
       "main.cjs",
       "preload.cjs",
       "package.json"

@@ -67,6 +67,33 @@ button {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+.side-nav-actions {
+  margin-top: 1rem;
+  padding: 0.35rem 0.35rem 0;
+}
+
+.tray-nav-button {
+  display: inline-flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgb(228 228 231);
+  font-size: 0.84rem;
+  font-weight: 700;
+  transition: 160ms ease;
+}
+
+.tray-nav-button:hover {
+  border-color: rgba(45, 212, 191, 0.28);
+  background: rgba(45, 212, 191, 0.105);
+  color: rgb(240 253 250);
+}
+
 .panel,
 .floating-panel {
   border: 1px solid rgba(255, 255, 255, 0.105);
@@ -1280,6 +1307,10 @@ kbd {
     display: grid;
     grid-template-columns: repeat(5, minmax(120px, 1fr));
     overflow-x: auto;
+  }
+
+  .side-nav-actions {
+    padding: 0.75rem 0 0;
   }
 
   .topbar {

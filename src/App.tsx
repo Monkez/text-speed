@@ -340,7 +340,7 @@ function MainApp() {
     <main className="min-h-screen overflow-hidden bg-[#0d0d0d] text-zinc-100">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_18%_14%,rgba(20,184,166,0.16),transparent_28%),radial-gradient(circle_at_78%_8%,rgba(99,102,241,0.14),transparent_26%),linear-gradient(135deg,rgba(255,255,255,0.035),transparent_45%)]" />
       <div className="app-shell relative grid min-h-screen grid-cols-[248px_1fr]">
-        <aside className="side-nav border-r border-white/10 bg-black/35 px-4 py-5 backdrop-blur-xl">
+        <aside className="side-nav flex flex-col border-r border-white/10 bg-black/35 px-4 py-5 backdrop-blur-xl">
           <div className="mb-7 flex items-center gap-3 px-2">
             <div className="grid size-10 place-items-center rounded-lg border border-teal-300/30 bg-teal-300/10 text-teal-200 shadow-[0_0_28px_rgba(45,212,191,0.18)]">
               <Zap size={19} />
@@ -350,7 +350,7 @@ function MainApp() {
               <div className="text-xs text-zinc-500">AI Smart Typist</div>
             </div>
           </div>
-          <nav className="space-y-1">
+          <nav className="flex-1 space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = activeNav === item.id;
@@ -367,6 +367,12 @@ function MainApp() {
               );
             })}
           </nav>
+          <div className="side-nav-actions">
+            <button className="tray-nav-button" onClick={handleHideToTray} title="Hide TextSpeed to system tray" type="button">
+              <Minimize2 size={16} />
+              <span>Tray</span>
+            </button>
+          </div>
         </aside>
 
         <section className="app-main grid min-h-screen grid-rows-[72px_minmax(0,1fr)] overflow-hidden">
@@ -376,10 +382,6 @@ function MainApp() {
               <p className="text-sm text-zinc-500">{activePage.description}</p>
             </div>
             <div className="flex items-center gap-2">
-              <button className="ghost-button" onClick={handleHideToTray} title="Hide TextSpeed to system tray" type="button">
-                <Minimize2 size={16} />
-                Tray
-              </button>
               <button className="primary-button" onClick={handleSave} type="button">
                 <Save size={16} />
                 {saveState}
