@@ -350,9 +350,18 @@ button {
 
 .tier-config-grid {
   display: grid;
-  grid-template-columns: 150px minmax(180px, 1fr) minmax(180px, 1fr) minmax(180px, 1fr);
+  grid-template-columns: minmax(150px, 0.85fr) minmax(260px, 1.15fr);
   gap: 0.75rem;
   align-items: start;
+}
+
+.tier-field-wide {
+  grid-column: 1 / -1;
+}
+
+.tier-config-card input,
+.tier-config-card select {
+  min-width: 0;
 }
 
 .tier-config-actions {

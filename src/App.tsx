@@ -473,7 +473,7 @@ function MainApp() {
               <ImeInput value={model} onValueChange={(value) => updateTierField(tier, { model: value })} />
             )}
           </label>
-          <label className="field">
+          <label className="field tier-field-wide">
             <span>API key</span>
             <ImeInput
               autoComplete="off"
@@ -484,7 +484,7 @@ function MainApp() {
             />
           </label>
           {provider === "custom" && (
-            <label className="field">
+            <label className="field tier-field-wide">
               <span>base_url</span>
               <ImeInput
                 autoComplete="off"
