@@ -55,7 +55,7 @@ import {
   saveSettings,
   testProvider,
   writeClipboardText,
-} from "./lib/tauri";
+} from "./lib/electron";
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: Sparkles },
@@ -63,7 +63,6 @@ const navItems = [
   { id: "providers", label: "AI Providers", icon: Bot },
   { id: "commands", label: "Commands", icon: Command },
   { id: "hotkeys", label: "Hotkeys", icon: Keyboard },
-  { id: "ocr", label: "OCR", icon: ScanText },
   { id: "logs", label: "Logs", icon: TerminalSquare },
 ];
 
@@ -205,7 +204,6 @@ function MainApp() {
   const saveButtonLabel = saveState === "Saving" ? "Saving" : settingsDirty ? "Save" : "Saved";
 
   useEffect(() => {
-    document.body.classList.add("floating-window-body");
     getSettings()
       .then((loaded) => {
         setSettings(loaded);
@@ -242,7 +240,7 @@ function MainApp() {
           setSelectedText(text);
         }
       } catch {
-        // Tauri event bridge is unavailable in browser preview.
+        // Electron event bridge is unavailable in browser preview.
       }
     })
       .then((dispose) => {
@@ -251,7 +249,6 @@ function MainApp() {
       .catch(() => undefined);
 
     return () => {
-      document.body.classList.remove("floating-window-body");
       unlisten?.();
     };
   }, []);
@@ -278,7 +275,7 @@ function MainApp() {
         }
         setInlinePreview(`Nhận diện ${match.prefix}${match.command} (${match.modelTier}): "${match.content}"`);
       })
-      .catch(() => setInlinePreview("Parser chỉ hoạt động trong Tauri runtime."));
+      .catch(() => setInlinePreview("Parser chỉ hoạt động trong Electron runtime."));
   }, [inlineBuffer]);
 
   useEffect(() => {
@@ -369,7 +366,7 @@ function MainApp() {
   }
 
   async function handleApplyHotkeys() {
-    const validation = validateHotkeys(settings.popupHotkey, settings.ocrHotkey);
+    const validation = validateOneHotkey(normalizeHotkeyText(settings.popupHotkey), "Floating menu");
     if (validation) {
       setHotkeyApplyState("Fix required");
       return;
@@ -380,7 +377,6 @@ function MainApp() {
       const saved = await saveSettings({
         ...settings,
         popupHotkey: normalizeHotkeyText(settings.popupHotkey),
-        ocrHotkey: normalizeHotkeyText(settings.ocrHotkey),
       });
       setSettings(saved);
       setSavedSettings(saved);
@@ -629,12 +625,7 @@ function MainApp() {
                     <button className="provider-card" onClick={() => setActiveNav("hotkeys")} type="button">
                       <Keyboard size={18} />
                       <span>Hotkeys</span>
-                      <small>Floating menu và OCR snip</small>
-                    </button>
-                    <button className="provider-card" onClick={() => setActiveNav("ocr")} type="button">
-                      <ScanText size={18} />
-                      <span>OCR</span>
-                      <small>Roadmap, hotkey and pipeline notes</small>
+                      <small>Floating menu shortcut</small>
                     </button>
                   </div>
                 </section>
@@ -747,7 +738,7 @@ function MainApp() {
                     <span className={`status-pill ${hotkeyApplyState === "Pending" || hotkeyApplyState === "Fix required" ? "status-pill-warn" : ""}`}>
                       {hotkeyApplyState}
                     </span>
-                    <button className="primary-button" disabled={Boolean(validateHotkeys(settings.popupHotkey, settings.ocrHotkey))} onClick={handleApplyHotkeys} type="button">
+                    <button className="primary-button" disabled={Boolean(validateOneHotkey(normalizeHotkeyText(settings.popupHotkey), "Floating menu"))} onClick={handleApplyHotkeys} type="button">
                       <Check size={16} />
                       Apply
                     </button>
@@ -764,19 +755,10 @@ function MainApp() {
                     onRecordingChange={(recording) => setRecordingHotkey(recording ? "popup" : null)}
                     value={settings.popupHotkey}
                   />
-                  <HotkeyRecorder
-                    description="Chuẩn bị cho workflow khoanh vùng màn hình. Hotkey được lưu sẵn, OCR native vẫn nằm trong roadmap."
-                    icon={ScanText}
-                    isRecording={recordingHotkey === "ocr"}
-                    label="OCR screen snip"
-                    onChange={(value) => updateHotkey("ocr", value)}
-                    onRecordingChange={(recording) => setRecordingHotkey(recording ? "ocr" : null)}
-                    value={settings.ocrHotkey}
-                  />
                 </div>
 
-                {validateHotkeys(settings.popupHotkey, settings.ocrHotkey) && (
-                  <div className="hotkey-alert">{validateHotkeys(settings.popupHotkey, settings.ocrHotkey)}</div>
+                {validateOneHotkey(normalizeHotkeyText(settings.popupHotkey), "Floating menu") && (
+                  <div className="hotkey-alert">{validateOneHotkey(normalizeHotkeyText(settings.popupHotkey), "Floating menu")}</div>
                 )}
 
                 <div className="hotkey-note">
@@ -1070,6 +1052,7 @@ function FloatingWindowApp() {
   const [shortcut, setShortcut] = useState("Hotkey");
 
   useEffect(() => {
+    document.body.classList.add("floating-window-body");
     getSettings().then(setSettings).catch(() => setSettings(fallbackSettings));
     readClipboardText()
       .then((text) => {
@@ -1096,6 +1079,7 @@ function FloatingWindowApp() {
       .catch(() => undefined);
 
     return () => {
+      document.body.classList.remove("floating-window-body");
       unlisten?.();
     };
   }, []);
@@ -1936,19 +1920,6 @@ function normalizeHotkeyText(value: string) {
   const modifiers = ordered.filter((modifier) => parts.includes(modifier));
   const key = parts.find((part) => !ordered.includes(part));
   return [...modifiers, key].filter(Boolean).join(" + ");
-}
-
-function validateHotkeys(popupHotkey: string, ocrHotkey: string) {
-  const popup = normalizeHotkeyText(popupHotkey);
-  const ocr = normalizeHotkeyText(ocrHotkey);
-  const popupError = validateOneHotkey(popup, "Floating menu");
-  if (popupError) return popupError;
-  const ocrError = validateOneHotkey(ocr, "OCR snip");
-  if (ocrError) return ocrError;
-  if (popup.toLowerCase() === ocr.toLowerCase()) {
-    return "Floating menu và OCR snip không được dùng cùng một hotkey.";
-  }
-  return "";
 }
 
 function validateOneHotkey(value: string, label: string) {

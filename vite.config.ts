@@ -11,5 +11,5 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
-  envPrefix: ["VITE_", "TAURI_"],
+  envPrefix: ["VITE_"],
 });

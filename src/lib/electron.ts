@@ -1,6 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen as tauriListen } from "@tauri-apps/api/event";
-
 declare global {
   interface Window {
     textspeed?: {
@@ -134,7 +131,7 @@ function call<T>(channel: string, payload?: Record<string, unknown>): Promise<T>
   if (window.textspeed?.invoke) {
     return window.textspeed.invoke<T>(channel, payload);
   }
-  return invoke<T>(channel, payload);
+  return Promise.reject(new Error("TextSpeed Electron bridge is unavailable"));
 }
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
@@ -148,5 +145,5 @@ export async function listenTextSpeedEvent<T>(
   if (window.textspeed?.on) {
     return window.textspeed.on<T>(channel, (payload) => callback({ payload }));
   }
-  return tauriListen<T>(channel, callback);
+  return () => undefined;
 }

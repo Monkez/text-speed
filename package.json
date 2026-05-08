@@ -1,17 +1,15 @@
 {
   "name": "textspeed",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "node scripts/test-core.cjs",
     "preview": "vite preview",
     "electron:start": "npm run build && electron .",
-    "electron:package": "npm run build && electron-builder --win",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "electron:package": "npm run build && electron-builder --win"
   },
   "main": "main.cjs",
   "build": {
@@ -26,6 +24,7 @@
     },
     "files": [
       "dist/**/*",
+      "shared/**/*",
       "build/icon.ico",
       "main.cjs",
       "preload.cjs",
@@ -40,7 +39,6 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",
-    "@tauri-apps/cli": "^2.11.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -52,8 +50,6 @@
     "vite": "^8.0.10"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.0",
-    "@tauri-apps/plugin-opener": "^2.5.4",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.14.0",

@@ -1,7 +1,14 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, screen, Tray } = require("electron");
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, Notification, safeStorage, screen, Tray } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const {
+  hotkeyId,
+  normalizeBaseUrl,
+  parseInlineBuffer,
+  redactSecrets,
+  toElectronAccelerator,
+} = require("./shared/core.cjs");
 
 let mainWindow;
 let floatingWindow;
@@ -19,75 +26,101 @@ const systemStatus = ["Electron shell ready"];
 const inlineStatus = ["Inline hook starting"];
 const INLINE_RUNNING_MARKER = "[TextSpeed running...]";
 
-const fallbackSettings = {
-  preferredLanguage: "Tiếng Việt",
-  translationLanguageA: "Tiếng Việt",
-  translationLanguageB: "English",
-  provider: "openai",
-  model: "gpt-4.1-mini",
-  fastProvider: "openai",
-  fastModel: "gpt-4.1-mini",
-  fastApiKey: "",
-  fastBaseUrl: "",
-  balancedProvider: "openai",
-  balancedModel: "gpt-4.1-mini",
-  balancedApiKey: "",
-  balancedBaseUrl: "",
-  powerfulProvider: "openai",
-  powerfulModel: "gpt-4.1",
-  powerfulApiKey: "",
-  powerfulBaseUrl: "",
-  openaiApiKey: "",
-  claudeApiKey: "",
-  geminiApiKey: "",
-  customApiKey: "",
-  customBaseUrl: "",
-  popupHotkey: "Ctrl + Space",
-  ocrHotkey: "Ctrl + Shift + S",
-  inlineEnabled: true,
-  commands: [
-    {
-      name: "trans",
-      label: "Translate",
-      action: "translate",
-      prompt: "Dịch theo cặp ngôn ngữ ưu tiên; nếu nguồn nằm ngoài cặp này thì dịch sang ngôn ngữ ưu tiên.",
-      enabled: true,
-    },
-    { name: "fix", label: "Fix grammar", action: "fix", prompt: "Sửa chính tả, ngữ pháp, dấu câu. Không giải thích.", enabled: true },
-    { name: "pro", label: "Professional", action: "professional", prompt: "Viết lại theo phong cách chuyên nghiệp, ngắn gọn và lịch sự.", enabled: true },
-    { name: "mail", label: "Email draft", action: "mail", prompt: "Tạo email hoàn chỉnh có tiêu đề, lời chào, nội dung, kết thúc.", enabled: true },
-  ],
-  floatingActions: [
-    { id: "translate", label: "Translate", action: "translate", prompt: "Dịch theo cặp ngôn ngữ ưu tiên; nếu nguồn nằm ngoài cặp này thì dịch sang ngôn ngữ ưu tiên.", enabled: true },
-    { id: "summary", label: "Summary", action: "summarize", prompt: "Tóm tắt ý chính, ngắn gọn.", enabled: true },
-    { id: "reply", label: "Reply", action: "reply", prompt: "Viết một phản hồi ngắn, tự nhiên.", enabled: true },
-    { id: "explain", label: "Explain", action: "explain", prompt: "Giải thích dễ hiểu, trực tiếp.", enabled: true },
-  ],
-};
+const fallbackSettings = require("./shared/default-settings.json");
+const SECRET_FIELDS = [
+  "fastApiKey",
+  "balancedApiKey",
+  "powerfulApiKey",
+  "openaiApiKey",
+  "claudeApiKey",
+  "geminiApiKey",
+  "customApiKey",
+];
+
+function cloneSettings(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function stripSecrets(settings) {
+  const clean = { ...settings };
+  for (const field of SECRET_FIELDS) {
+    clean[field] = "";
+  }
+  return clean;
+}
 
 function settingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
 }
 
+function secretsPath() {
+  return path.join(app.getPath("userData"), "secrets.json");
+}
+
+function encryptSecret(value) {
+  if (!value) return "";
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error("Electron safeStorage encryption is unavailable");
+  }
+  return safeStorage.encryptString(String(value)).toString("base64");
+}
+
+function decryptSecret(value) {
+  if (!value || !safeStorage.isEncryptionAvailable()) return "";
+  try {
+    return safeStorage.decryptString(Buffer.from(String(value), "base64"));
+  } catch {
+    return "";
+  }
+}
+
+function loadSecrets() {
+  try {
+    const encrypted = JSON.parse(fs.readFileSync(secretsPath(), "utf8"));
+    return Object.fromEntries(SECRET_FIELDS.map((field) => [field, decryptSecret(encrypted[field])]));
+  } catch {
+    return Object.fromEntries(SECRET_FIELDS.map((field) => [field, ""]));
+  }
+}
+
+function saveSecrets(settings) {
+  const existing = loadSecrets();
+  const next = {};
+  for (const field of SECRET_FIELDS) {
+    const value = settings[field] ?? existing[field] ?? "";
+    next[field] = value ? encryptSecret(value) : "";
+  }
+  fs.mkdirSync(path.dirname(secretsPath()), { recursive: true });
+  fs.writeFileSync(secretsPath(), JSON.stringify(next, null, 2), "utf8");
+}
+
 function loadSettings() {
   try {
-    const loaded = { ...fallbackSettings, ...JSON.parse(fs.readFileSync(settingsPath(), "utf8")) };
+    const rawSettings = JSON.parse(fs.readFileSync(settingsPath(), "utf8"));
+    const rawSecrets = Object.fromEntries(SECRET_FIELDS.map((field) => [field, rawSettings[field] || ""]));
+    const hasPlaintextSecrets = Object.values(rawSecrets).some(Boolean);
+    if (hasPlaintextSecrets) {
+      saveSecrets(rawSecrets);
+      fs.writeFileSync(settingsPath(), JSON.stringify(stripSecrets(rawSettings), null, 2), "utf8");
+    }
+    const loaded = { ...cloneSettings(fallbackSettings), ...rawSettings, ...loadSecrets() };
     return normalizeSettings(loaded);
   } catch {
-    return fallbackSettings;
+    return normalizeSettings({ ...cloneSettings(fallbackSettings), ...loadSecrets() });
   }
 }
 
 function saveSettings(settings) {
-  const next = normalizeSettings({ ...fallbackSettings, ...settings });
+  const next = normalizeSettings({ ...cloneSettings(fallbackSettings), ...settings });
+  saveSecrets(next);
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2), "utf8");
+  fs.writeFileSync(settingsPath(), JSON.stringify(stripSecrets(next), null, 2), "utf8");
   registerHotkeys(next);
   return next;
 }
 
 function normalizeSettings(settings) {
-  const next = { ...fallbackSettings, ...settings };
+  const next = { ...cloneSettings(fallbackSettings), ...settings };
   next.fastProvider = next.fastProvider || next.provider || fallbackSettings.fastProvider;
   next.balancedProvider = next.balancedProvider || next.provider || fallbackSettings.balancedProvider;
   next.powerfulProvider = next.powerfulProvider || next.provider || fallbackSettings.powerfulProvider;
@@ -116,19 +149,6 @@ function providerBaseUrl(settings, provider) {
   return provider === "custom" ? settings.customBaseUrl || "" : "";
 }
 
-function parseInlineBuffer(buffer) {
-  const trimmed = String(buffer || "").trimEnd();
-  if (!trimmed.endsWith("/")) return null;
-  const match = trimmed.match(/(?:^|\s)(\/{1,3})([A-Za-z0-9_-]+)\s+([\s\S]+)\/$/);
-  if (!match) return null;
-  const prefix = match[1];
-  const command = match[2];
-  const content = match[3].trim();
-  if (!content) return null;
-  const modelTier = prefix.length === 1 ? "fast" : prefix.length === 2 ? "balanced" : "powerful";
-  return { command, content, fullText: `${prefix}${command} ${match[3]}/`, prefix, modelTier };
-}
-
 function profileForTier(settings, tier) {
   const prefix = tier === "fast" ? "fast" : tier === "powerful" ? "powerful" : "balanced";
   const provider = settings[`${prefix}Provider`] || settings.provider || "openai";
@@ -142,10 +162,6 @@ function profileForTier(settings, tier) {
 
 function modelForTier(settings, tier) {
   return profileForTier(settings, tier).model;
-}
-
-function normalizeBaseUrl(baseUrl) {
-  return String(baseUrl || "").trim().replace(/\/+$/, "");
 }
 
 function settingsForProfile(settings, profile) {
@@ -180,13 +196,45 @@ function replaceLast(source, needle, replacement) {
 
 function pushStatus(target, value) {
   const timestamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
-  target.push(`[${timestamp}] ${value}`);
+  const safeValue = redactSecrets(String(value));
+  target.push(`[${timestamp}] ${safeValue}`);
   while (target.length > 60) target.shift();
-  console.log(value);
+  console.log(safeValue);
 }
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function requestJson(url, options = {}, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const value = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(providerErrorMessage(value, response.status));
+    }
+    return value;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Provider request timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function providerErrorMessage(value, status) {
+  const message =
+    value?.error?.message ||
+    value?.error_description ||
+    value?.message ||
+    value?.detail ||
+    "Provider request failed";
+  const type = value?.error?.type || value?.type || "";
+  return [`HTTP ${status}`, type, redactSecrets(String(message))].filter(Boolean).join(": ");
 }
 
 function sendKeys(keys) {
@@ -202,6 +250,89 @@ function sendKeys(keys) {
     child.on("error", reject);
     child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`SendKeys failed: ${code}`))));
   });
+}
+
+function showInlineCancelledNotification() {
+  const title = "TextSpeed inline function canceled";
+  const body = "Function đã hủy vì bạn đã focus sang cửa sổ khác.";
+  pushStatus(inlineStatus, body);
+  if (Notification.isSupported()) {
+    new Notification({ title, body }).show();
+  }
+}
+
+function foregroundWindowScript(extraBody) {
+  return `
+$source = @"
+using System;
+using System.Runtime.InteropServices;
+public class TextSpeedForeground {
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
+}
+"@
+Add-Type -TypeDefinition $source
+${extraBody}
+`;
+}
+
+function getForegroundWindowId() {
+  return new Promise((resolve) => {
+    const child = spawn("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      foregroundWindowScript('[TextSpeedForeground]::GetForegroundWindow().ToInt64()'),
+    ], { windowsHide: true });
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += String(chunk);
+    });
+    child.on("error", () => resolve(null));
+    child.on("exit", () => {
+      const id = Number(output.trim());
+      resolve(Number.isFinite(id) && id > 0 ? id : null);
+    });
+  });
+}
+
+function startInlineFocusWatcher(expectedWindowId, onCancel) {
+  if (!expectedWindowId) return { stop() {} };
+
+  let stopped = false;
+  const script = foregroundWindowScript(`
+$expected = [Int64]${expectedWindowId}
+while ($true) {
+  Start-Sleep -Milliseconds 150
+  $current = [TextSpeedForeground]::GetForegroundWindow().ToInt64()
+  if ($current -ne $expected) {
+    Write-Output "FOCUS_CHANGED"
+    [Console]::Out.Flush()
+    exit 0
+  }
+}
+`);
+  const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+    windowsHide: true,
+  });
+
+  child.stdout.on("data", (chunk) => {
+    if (!stopped && String(chunk).includes("FOCUS_CHANGED")) {
+      stopped = true;
+      onCancel();
+    }
+  });
+  child.on("exit", () => {
+    stopped = true;
+  });
+
+  return {
+    stop() {
+      stopped = true;
+      if (!child.killed) child.kill();
+    },
+  };
 }
 
 async function copySelectionToClipboard() {
@@ -268,13 +399,11 @@ async function runAi(action, prompt, text, settings, modelOverride, providerOver
     if (!baseUrl) throw new Error("Custom provider base URL is not set");
     const model = modelOverride || settings.model || settings.balancedModel;
     if (!model) throw new Error("Custom provider model is not set");
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const value = await requestJson(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({ model, messages: [{ role: "user", content: instruction }] }),
     });
-    const value = await response.json();
-    if (!response.ok) throw new Error(JSON.stringify(value));
     return openAiCompatibleText(value);
   }
 
@@ -282,13 +411,11 @@ async function runAi(action, prompt, text, settings, modelOverride, providerOver
     const key = settings.claudeApiKey || process.env.ANTHROPIC_API_KEY;
     if (!key) throw new Error("Claude API key is not set");
     const model = modelOverride || settings.model || settings.balancedModel || "claude-3-5-haiku-latest";
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const value = await requestJson("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content: instruction }] }),
     });
-    const value = await response.json();
-    if (!response.ok) throw new Error(JSON.stringify(value));
     return claudeText(value);
   }
 
@@ -296,26 +423,22 @@ async function runAi(action, prompt, text, settings, modelOverride, providerOver
     const key = settings.geminiApiKey || process.env.GEMINI_API_KEY;
     if (!key) throw new Error("GEMINI_API_KEY is not set");
     const model = modelOverride || settings.model || settings.balancedModel || "gemini-2.5-flash-lite";
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+    const value = await requestJson(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ contents: [{ parts: [{ text: instruction }] }] }),
     });
-    const value = await response.json();
-    if (!response.ok) throw new Error(JSON.stringify(value));
     return value?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim() || "";
   }
 
   const key = settings.openaiApiKey || process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY is not set");
   const model = modelOverride || settings.model || settings.balancedModel || "gpt-4.1-mini";
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const value = await requestJson("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
     body: JSON.stringify({ model, input: instruction }),
   });
-  const value = await response.json();
-  if (!response.ok) throw new Error(JSON.stringify(value));
   return value.output_text || value.output?.flatMap((item) => item.content || []).map((part) => part.text || "").join("").trim() || "";
 }
 
@@ -433,45 +556,6 @@ async function openFloatingMenu(hotkey) {
   popup.focus();
   emitHotkey("popup", hotkey);
   cleanupClipboard(previous);
-}
-
-function toElectronAccelerator(value) {
-  const keyMap = {
-    ctrl: "CommandOrControl",
-    control: "CommandOrControl",
-    alt: "Alt",
-    shift: "Shift",
-    win: "Super",
-    windows: "Super",
-    meta: "Super",
-    cmd: "Command",
-    command: "Command",
-    space: "Space",
-    esc: "Esc",
-    escape: "Esc",
-  };
-  return String(value || "")
-    .split("+")
-    .map((part) => {
-      const trimmed = part.trim();
-      return keyMap[trimmed.toLowerCase()] || trimmed.toUpperCase();
-    })
-    .filter(Boolean)
-    .join("+");
-}
-
-function hotkeyId(value) {
-  return String(value || "")
-    .split("+")
-    .map((part) => part.trim().toLowerCase())
-    .filter(Boolean)
-    .map((part) => {
-      if (part === "control") return "ctrl";
-      if (["windows", "meta", "cmd", "command"].includes(part)) return "win";
-      if (part === "escape") return "esc";
-      return part;
-    })
-    .join("+");
 }
 
 function vkLabel(vkCode) {
@@ -652,12 +736,7 @@ async function handleHookHotkey(vkCode, ctrl, alt, shift, win) {
 
   if (hotkeyId(combo) === hotkeyId(settings.ocrHotkey)) {
     hotkeyBusy = true;
-    pushStatus(systemStatus, `Hotkey: OCR (${settings.ocrHotkey})`);
-    emitHotkey("ocr", settings.ocrHotkey);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
+    pushStatus(systemStatus, "OCR hotkey ignored: OCR is not implemented in this build");
     setTimeout(() => {
       hotkeyBusy = false;
     }, 350);
@@ -673,18 +752,7 @@ function registerHotkeys(settings = loadSettings()) {
     pushStatus(systemStatus, ok ? `Registered floating hotkey: ${settings.popupHotkey}` : `Failed to register floating hotkey: ${settings.popupHotkey}`);
   }
 
-  const ocrAccelerator = toElectronAccelerator(settings.ocrHotkey);
-  if (ocrAccelerator) {
-    const ok = globalShortcut.register(ocrAccelerator, () => {
-      pushStatus(systemStatus, `Hotkey: OCR (${settings.ocrHotkey})`);
-      emitHotkey("ocr", settings.ocrHotkey);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.show();
-        mainWindow.focus();
-      }
-    });
-    pushStatus(systemStatus, ok ? `Registered OCR hotkey: ${settings.ocrHotkey}` : `Failed to register OCR hotkey: ${settings.ocrHotkey}`);
-  }
+  pushStatus(systemStatus, "OCR hotkey not registered: OCR is not implemented in this build");
 }
 
 async function handleInlineSlashProbe() {
@@ -695,13 +763,36 @@ async function handleInlineSlashProbe() {
   if (!settings.inlineEnabled) return;
   inlineBusy = true;
 
+  const initialForegroundWindowId = await getForegroundWindowId();
+  let focusCancelled = false;
+  let focusWatcher;
+  function cancelInlineForFocusChange() {
+    if (focusCancelled) return;
+    focusCancelled = true;
+    showInlineCancelledNotification();
+  }
+  async function throwIfFocusChanged() {
+    if (focusCancelled) {
+      throw new Error("INLINE_FOCUS_CANCELLED");
+    }
+    if (!initialForegroundWindowId) return;
+    const currentForegroundWindowId = await getForegroundWindowId();
+    if (currentForegroundWindowId && currentForegroundWindowId !== initialForegroundWindowId) {
+      cancelInlineForFocusChange();
+      throw new Error("INLINE_FOCUS_CANCELLED");
+    }
+  }
+
   let originalClipboard = clipboard.readText();
   let selectedTextForError = "";
   let runningTextForError = "";
   let parsedForError = null;
   try {
+    focusWatcher = startInlineFocusWatcher(initialForegroundWindowId, cancelInlineForFocusChange);
     pushStatus(inlineStatus, "Inline slash probe");
+    await throwIfFocusChanged();
     const extraction = await selectAllAndCopyFocusedText();
+    await throwIfFocusChanged();
     originalClipboard = extraction.previous;
     selectedTextForError = extraction.selected;
     const parsed = parseInlineBuffer(extraction.selected);
@@ -731,17 +822,24 @@ async function handleInlineSlashProbe() {
     const profile = profileForTier(settings, parsed.modelTier);
     const profileSettings = settingsForProfile(settings, profile);
     pushStatus(inlineStatus, `Inline running: ${parsed.prefix}${parsed.command} (${parsed.modelTier}: ${profile.provider} / ${profile.model})`);
+    await throwIfFocusChanged();
     await pasteText(runningText);
     runningTextForError = runningText;
 
     const output = await runAi(command.action, command.prompt, parsed.content, profileSettings, profile.model, profile.provider);
+    await throwIfFocusChanged();
     const finalText = replaceLast(runningText, INLINE_RUNNING_MARKER, output) || output;
     await sendKeys("^a");
     await delay(100);
+    await throwIfFocusChanged();
     await pasteText(finalText);
     pushStatus(inlineStatus, "Inline done");
     cleanupClipboard(originalClipboard);
   } catch (error) {
+    if (focusCancelled || error.message === "INLINE_FOCUS_CANCELLED") {
+      cleanupClipboard(originalClipboard);
+      return;
+    }
     pushStatus(inlineStatus, `Inline failed: ${error.message}`);
     const errorText = "[TextSpeed error!]";
     const finalText = runningTextForError
@@ -758,6 +856,7 @@ async function handleInlineSlashProbe() {
     }
     cleanupClipboard(originalClipboard);
   } finally {
+    focusWatcher?.stop();
     await delay(150);
     inlineBusy = false;
   }
@@ -916,34 +1015,30 @@ ipcMain.handle("get_model_ids", async (_event, payload) => {
   const profile = payload.tier ? profileForTier(settings, payload.tier) : profileForTier(settings, "balanced");
   const profileSettings = settingsForProfile(settings, profile);
   if (profile.provider === "claude") {
-    return [
-      "claude-3-5-haiku-latest",
-      "claude-3-5-sonnet-latest",
-      "claude-sonnet-4-5",
-      "claude-opus-4-1",
-    ];
+    const key = profileSettings.claudeApiKey || process.env.ANTHROPIC_API_KEY;
+    if (!key) throw new Error("Claude API key is not set");
+    const value = await requestJson("https://api.anthropic.com/v1/models", {
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+    }, 30000);
+    return (value.data || []).map((model) => model.id).filter(Boolean);
   }
   if (profile.provider === "custom") {
     const key = profileSettings.customApiKey || process.env.TEXTSPEED_CUSTOM_API_KEY;
     if (!key) throw new Error("Custom provider API key is not set");
     const baseUrl = normalizeBaseUrl(profileSettings.customBaseUrl);
     if (!baseUrl) throw new Error("Custom provider base URL is not set");
-    const response = await fetch(`${baseUrl}/models`, { headers: { authorization: `Bearer ${key}` } });
-    const value = await response.json();
-    if (!response.ok) throw new Error(JSON.stringify(value));
+    const value = await requestJson(`${baseUrl}/models`, { headers: { authorization: `Bearer ${key}` } }, 30000);
     return (value.data || value.models || []).map((model) => String(model.id || model.name || "").replace(/^models\//, "")).filter(Boolean);
   }
   if (profile.provider === "gemini") {
     const key = profileSettings.geminiApiKey || process.env.GEMINI_API_KEY;
     if (!key) throw new Error("GEMINI_API_KEY is not set");
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
-    const value = await response.json();
+    const value = await requestJson(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`, {}, 30000);
     return (value.models || []).map((model) => String(model.name || "").replace(/^models\//, "")).filter(Boolean);
   }
   const key = profileSettings.openaiApiKey || process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY is not set");
-  const response = await fetch("https://api.openai.com/v1/models", { headers: { authorization: `Bearer ${key}` } });
-  const value = await response.json();
+  const value = await requestJson("https://api.openai.com/v1/models", { headers: { authorization: `Bearer ${key}` } }, 30000);
   return (value.data || []).map((model) => model.id).filter(Boolean);
 });
 ipcMain.handle("get_runtime_status", () => ({
