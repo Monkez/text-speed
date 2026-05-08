@@ -26,7 +26,16 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
+import {
+  type Dispatch,
+  type InputHTMLAttributes,
+  type SetStateAction,
+  type TextareaHTMLAttributes,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { listen } from "@tauri-apps/api/event";
 import { fallbackSettings } from "./data/fallback";
 import {
@@ -363,7 +372,7 @@ function MainApp() {
           </nav>
         </aside>
 
-        <section className="grid grid-rows-[72px_1fr]">
+        <section className="app-main grid min-h-screen grid-rows-[72px_minmax(0,1fr)] overflow-hidden">
           <header className="topbar flex items-center justify-between border-b border-white/10 px-7 backdrop-blur-xl">
             <div>
               <h1 className="text-xl font-semibold tracking-normal">{activePage.title}</h1>
@@ -385,7 +394,7 @@ function MainApp() {
             </div>
           </header>
 
-          <div className={`content-grid ${activeNav === "commands" || activeNav === "logs" ? "content-grid-wide" : ""} grid grid-cols-[minmax(0,1fr)_390px] gap-5 p-6`}>
+          <div className={`content-grid content-scroll ${activeNav === "commands" || activeNav === "logs" ? "content-grid-wide" : ""} grid grid-cols-[minmax(0,1fr)_390px] gap-5 p-6`}>
             {activeNav !== "logs" && (
             <div className="space-y-5">
               {activeNav === "dashboard" && (
@@ -482,22 +491,22 @@ function MainApp() {
                   <div className="translation-pair">
                     <label className="field">
                       <span>Language A</span>
-                      <input
+                      <ImeInput
                         value={settings.translationLanguageA}
-                        onChange={(event) =>
+                        onValueChange={(value) =>
                           setSettings({
                             ...settings,
-                            preferredLanguage: event.target.value,
-                            translationLanguageA: event.target.value,
+                            preferredLanguage: value,
+                            translationLanguageA: value,
                           })
                         }
                       />
                     </label>
                     <label className="field">
                       <span>Language B</span>
-                      <input
+                      <ImeInput
                         value={settings.translationLanguageB}
-                        onChange={(event) => setSettings({ ...settings, translationLanguageB: event.target.value })}
+                        onValueChange={(value) => setSettings({ ...settings, translationLanguageB: value })}
                       />
                     </label>
                   </div>
@@ -519,9 +528,9 @@ function MainApp() {
                           ))}
                         </select>
                       ) : (
-                        <input
+                        <ImeInput
                           value={settings.model}
-                          onChange={(event) => setSettings({ ...settings, model: event.target.value })}
+                          onValueChange={(value) => setSettings({ ...settings, model: value })}
                         />
                       )}
                       <button
@@ -549,29 +558,29 @@ function MainApp() {
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <label className="field">
                     <span>OpenAI API key</span>
-                    <input
+                    <ImeInput
                       autoComplete="off"
                       placeholder="sk-..."
                       type="password"
                       value={settings.openaiApiKey}
-                      onChange={(event) => {
+                      onValueChange={(value) => {
                         setModelIds([]);
                         setModelFetchState("Not loaded");
-                        setSettings({ ...settings, openaiApiKey: event.target.value });
+                        setSettings({ ...settings, openaiApiKey: value });
                       }}
                     />
                   </label>
                   <label className="field">
                     <span>Gemini API key</span>
-                    <input
+                    <ImeInput
                       autoComplete="off"
                       placeholder="AIza..."
                       type="password"
                       value={settings.geminiApiKey}
-                      onChange={(event) => {
+                      onValueChange={(value) => {
                         setModelIds([]);
                         setModelFetchState("Not loaded");
-                        setSettings({ ...settings, geminiApiKey: event.target.value });
+                        setSettings({ ...settings, geminiApiKey: value });
                       }}
                     />
                   </label>
@@ -705,12 +714,12 @@ function MainApp() {
                     shortcut={settings.popupHotkey}
                     selectedActionId={selectedFloatingActionId}
                   />
-                  <section className="panel">
+                  <section className="panel selected-text-panel">
                     <div className="section-heading compact">
                       <h2>Selected Text</h2>
                       <MousePointer2 size={18} />
                     </div>
-                    <textarea className="tall" value={selectedText} onChange={(event) => setSelectedText(event.target.value)} />
+                    <ImeTextarea className="selected-text-input" value={selectedText} onValueChange={setSelectedText} />
                     <button className="primary-button mt-3 w-full justify-center" onClick={() => handleFloatingAction(selectedFloatingActionId)} type="button">
                       <Sparkles size={16} />
                       Run {settings.floatingActions.find((item) => item.id === selectedFloatingActionId)?.label ?? "Action"}
@@ -1007,6 +1016,80 @@ function FloatingWindowApp() {
 
 type HotkeyTarget = "popup" | "ocr";
 
+type ImeInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "onChange" | "value"> & {
+  onValueChange: (value: string) => void;
+  value: string;
+};
+
+function ImeInput({ onValueChange, value, ...props }: ImeInputProps) {
+  const [draft, setDraft] = useState(value);
+  const composing = useRef(false);
+
+  useEffect(() => {
+    if (!composing.current) setDraft(value);
+  }, [value]);
+
+  return (
+    <input
+      {...props}
+      onChange={(event) => {
+        const next = event.currentTarget.value;
+        setDraft(next);
+        if (!composing.current) onValueChange(next);
+      }}
+      onCompositionEnd={(event) => {
+        composing.current = false;
+        const next = event.currentTarget.value;
+        setDraft(next);
+        onValueChange(next);
+        props.onCompositionEnd?.(event);
+      }}
+      onCompositionStart={(event) => {
+        composing.current = true;
+        props.onCompositionStart?.(event);
+      }}
+      value={draft}
+    />
+  );
+}
+
+type ImeTextareaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "value"> & {
+  onValueChange: (value: string) => void;
+  value: string;
+};
+
+function ImeTextarea({ onValueChange, value, ...props }: ImeTextareaProps) {
+  const [draft, setDraft] = useState(value);
+  const composing = useRef(false);
+
+  useEffect(() => {
+    if (!composing.current) setDraft(value);
+  }, [value]);
+
+  return (
+    <textarea
+      {...props}
+      onChange={(event) => {
+        const next = event.currentTarget.value;
+        setDraft(next);
+        if (!composing.current) onValueChange(next);
+      }}
+      onCompositionEnd={(event) => {
+        composing.current = false;
+        const next = event.currentTarget.value;
+        setDraft(next);
+        onValueChange(next);
+        props.onCompositionEnd?.(event);
+      }}
+      onCompositionStart={(event) => {
+        composing.current = true;
+        props.onCompositionStart?.(event);
+      }}
+      value={draft}
+    />
+  );
+}
+
 type HotkeyRecorderProps = {
   description: string;
   icon: typeof Keyboard;
@@ -1295,20 +1378,20 @@ function CommandsPanel({
                   <span>Trigger command</span>
                   <div className="command-input-wrap">
                     <b>//</b>
-                    <input
+                    <ImeInput
                       className="code-input"
                       value={selectedCommand.name}
-                      onChange={(event) =>
-                        updateSelectedCommand({ name: event.target.value.replace(/^\/\//, "").replace(/\/$/, "").trim() })
+                      onValueChange={(value) =>
+                        updateSelectedCommand({ name: value.replace(/^\/\//, "").replace(/\/$/, "").trim() })
                       }
                     />
                   </div>
                 </label>
                 <label className="field">
                   <span>Display name</span>
-                  <input
+                  <ImeInput
                     value={selectedCommand.label}
-                    onChange={(event) => updateSelectedCommand({ label: event.target.value })}
+                    onValueChange={(value) => updateSelectedCommand({ label: value })}
                   />
                 </label>
                 <label className="field">
@@ -1339,10 +1422,10 @@ function CommandsPanel({
 
               <label className="field prompt-editor-field">
                 <span>Prompt sent directly to AI</span>
-                <textarea
+                <ImeTextarea
                   className="prompt-editor"
                   value={selectedCommand.prompt}
-                  onChange={(event) => updateSelectedCommand({ prompt: event.target.value })}
+                  onValueChange={(value) => updateSelectedCommand({ prompt: value })}
                   spellCheck={false}
                 />
               </label>
@@ -1369,7 +1452,7 @@ function CommandsPanel({
           <h3>Parser Test</h3>
           <p>{inlinePreview}</p>
         </div>
-        <textarea value={inlineBuffer} onChange={(event) => setInlineBuffer(event.target.value)} />
+        <ImeTextarea value={inlineBuffer} onValueChange={setInlineBuffer} />
         <button className="ghost-button" onClick={onExecuteInline} type="button">
           <Command size={16} />
           Execute Inline
@@ -1529,17 +1612,17 @@ function FloatingActionsPanel({
               <div className="function-fields floating-action-fields">
                 <label className="field">
                   <span>Action ID</span>
-                  <input
+                  <ImeInput
                     className="code-input"
                     value={selectedAction.id}
-                    onChange={(event) => updateSelectedAction({ id: event.target.value.trim() })}
+                    onValueChange={(value) => updateSelectedAction({ id: value.trim() })}
                   />
                 </label>
                 <label className="field">
                   <span>Button label</span>
-                  <input
+                  <ImeInput
                     value={selectedAction.label}
-                    onChange={(event) => updateSelectedAction({ label: event.target.value })}
+                    onValueChange={(value) => updateSelectedAction({ label: value })}
                   />
                 </label>
                 <label className="field">
@@ -1570,10 +1653,10 @@ function FloatingActionsPanel({
 
               <label className="field prompt-editor-field">
                 <span>Prompt sent directly to AI</span>
-                <textarea
+                <ImeTextarea
                   className="prompt-editor floating-prompt-editor"
                   value={selectedAction.prompt}
-                  onChange={(event) => updateSelectedAction({ prompt: event.target.value })}
+                  onValueChange={(value) => updateSelectedAction({ prompt: value })}
                   spellCheck={false}
                 />
               </label>
