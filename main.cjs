@@ -434,7 +434,7 @@ function charFromVk(vkCode, shift) {
 
 function shouldProbeInlineFromTracker(vkCode, ctrl, alt, shift, win) {
   if (ctrl || alt || win) {
-    resetInlineTracker();
+    inlineTracker.lastKeyAt = Date.now();
     return false;
   }
 
@@ -473,7 +473,12 @@ function shouldProbeInlineFromTracker(vkCode, ctrl, alt, shift, win) {
     return false;
   }
 
-  if (char !== "/" || !previousBuffer.includes("//")) {
+  if (char !== "/" || !previousBuffer.includes("//") || inlineTracker.openedAt === 0) {
+    return false;
+  }
+
+  if (now - inlineTracker.openedAt > 120000) {
+    resetInlineTracker();
     return false;
   }
 
@@ -488,10 +493,9 @@ function shouldProbeInlineFromTracker(vkCode, ctrl, alt, shift, win) {
 
   const candidate = inlineTracker.buffer.slice(inlineTracker.buffer.lastIndexOf("//"));
   const body = candidate.slice(2, -1).trimStart();
-  const commandOnly = /^[A-Za-z0-9_-]+$/.test(body);
-  const hasCommand = /^[A-Za-z0-9_-]+/.test(body);
-  const likelyPasteBeforeTerminator = commandOnly && now - previousLastKeyAt > 180;
-  if (hasCommand && likelyPasteBeforeTerminator) {
+  const commandThenMaybeSpace = /^[A-Za-z0-9_-]+\s*$/.test(body);
+  const likelyPasteBeforeTerminator = commandThenMaybeSpace && now - previousLastKeyAt > 180;
+  if (likelyPasteBeforeTerminator) {
     resetInlineTracker();
     return true;
   }
