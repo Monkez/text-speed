@@ -11,18 +11,31 @@ declare global {
 }
 
 export type AiAction = "translate" | "summarize" | "reply" | "explain" | "fix" | "professional" | "mail";
+export type AiProvider = "openai" | "claude" | "gemini" | "custom";
 
 export type AppSettings = {
   preferredLanguage: string;
   translationLanguageA: string;
   translationLanguageB: string;
-  provider: "openai" | "gemini";
+  provider: AiProvider;
   model: string;
+  fastProvider: AiProvider;
   fastModel: string;
+  fastApiKey: string;
+  fastBaseUrl: string;
+  balancedProvider: AiProvider;
   balancedModel: string;
+  balancedApiKey: string;
+  balancedBaseUrl: string;
+  powerfulProvider: AiProvider;
   powerfulModel: string;
+  powerfulApiKey: string;
+  powerfulBaseUrl: string;
   openaiApiKey: string;
+  claudeApiKey: string;
   geminiApiKey: string;
+  customApiKey: string;
+  customBaseUrl: string;
   popupHotkey: string;
   ocrHotkey: string;
   inlineEnabled: boolean;
@@ -80,12 +93,12 @@ export async function runFloatingAction(actionId: string, text: string): Promise
   return call<string>("run_floating_action", { actionId, text });
 }
 
-export async function getModelIds(settings: AppSettings): Promise<string[]> {
-  return call<string[]>("get_model_ids", { settings });
+export async function getModelIds(settings: AppSettings, tier?: "fast" | "balanced" | "powerful"): Promise<string[]> {
+  return call<string[]>("get_model_ids", { settings, tier });
 }
 
-export async function testProvider(settings: AppSettings): Promise<string> {
-  return call<string>("test_provider", { settings });
+export async function testProvider(settings: AppSettings, tier?: "fast" | "balanced" | "powerful"): Promise<string> {
+  return call<string>("test_provider", { settings, tier });
 }
 
 export async function readClipboardText(): Promise<string> {

@@ -7,7 +7,6 @@ import {
   CopyCheck,
   Cpu,
   FileText,
-  Globe2,
   Keyboard,
   Languages,
   MessageSquareReply,
@@ -75,7 +74,7 @@ const pageCopy: Record<string, { title: string; description: string }> = {
   },
   providers: {
     title: "AI Providers",
-    description: "Cấu hình OpenAI, Gemini, model và API key dùng cho mọi lệnh AI.",
+    description: "Cấu hình OpenAI, Gemini, custom provider, model và API key dùng cho mọi lệnh AI.",
   },
   general: {
     title: "General Settings",
@@ -118,10 +117,42 @@ const actionMeta: Record<AiAction, { icon: typeof Languages; hint: string }> = {
   mail: { icon: Clipboard, hint: "Email" },
 };
 
+type ModelTier = "fast" | "balanced" | "powerful";
+
+const modelTiers: Array<{ id: ModelTier; label: string; prefix: string; description: string }> = [
+  { id: "fast", label: "Fast", prefix: "/", description: "Lệnh nhẹ, cần phản hồi nhanh." },
+  { id: "balanced", label: "Balanced", prefix: "//", description: "Mặc định cho workflow thường ngày." },
+  { id: "powerful", label: "Powerful", prefix: "///", description: "Tác vụ khó, ưu tiên chất lượng." },
+];
+
+const aiProviders: AppSettings["provider"][] = ["openai", "claude", "gemini", "custom"];
+
 function defaultModelsForProvider(provider: AppSettings["provider"]) {
-  return provider === "openai"
-    ? { fastModel: "gpt-4.1-mini", balancedModel: "gpt-4.1-mini", powerfulModel: "gpt-4.1", model: "gpt-4.1-mini" }
-    : { fastModel: "gemini-2.5-flash-lite", balancedModel: "gemini-2.5-flash", powerfulModel: "gemini-2.5-pro", model: "gemini-2.5-flash" };
+  if (provider === "openai") {
+    return { fastModel: "gpt-4.1-mini", balancedModel: "gpt-4.1-mini", powerfulModel: "gpt-4.1", model: "gpt-4.1-mini" };
+  }
+  if (provider === "gemini") {
+    return { fastModel: "gemini-2.5-flash-lite", balancedModel: "gemini-2.5-flash", powerfulModel: "gemini-2.5-pro", model: "gemini-2.5-flash" };
+  }
+  return { fastModel: "gpt-4o-mini", balancedModel: "gpt-4o-mini", powerfulModel: "gpt-4o", model: "gpt-4o-mini" };
+}
+
+function defaultModelForTier(provider: AppSettings["provider"], tier: ModelTier) {
+  const defaults = defaultModelsForProvider(provider);
+  if (tier === "fast") return defaults.fastModel;
+  if (tier === "powerful") return defaults.powerfulModel;
+  return defaults.balancedModel;
+}
+
+function providerLabel(provider: AppSettings["provider"]) {
+  if (provider === "openai") return "OpenAI";
+  if (provider === "claude") return "Claude";
+  if (provider === "gemini") return "Gemini";
+  return "Custom";
+}
+
+function tierField(tier: ModelTier, field: "Provider" | "Model" | "ApiKey" | "BaseUrl") {
+  return `${tier}${field}` as keyof AppSettings;
 }
 
 function App() {
@@ -144,9 +175,17 @@ function MainApp() {
   const [inlinePreview, setInlinePreview] = useState("Chưa nhận diện lệnh.");
   const [inlineResult, setInlineResult] = useState("Kết quả inline sẽ xuất hiện sau khi bấm Execute Inline.");
   const [saveState, setSaveState] = useState("Saved");
-  const [providerTestState, setProviderTestState] = useState("Not tested");
-  const [modelIds, setModelIds] = useState<string[]>([]);
-  const [modelFetchState, setModelFetchState] = useState("Not loaded");
+  const [providerTestState, setProviderTestState] = useState<Record<ModelTier, string>>({
+    fast: "Not tested",
+    balanced: "Not tested",
+    powerful: "Not tested",
+  });
+  const [modelIds, setModelIds] = useState<Record<ModelTier, string[]>>({ fast: [], balanced: [], powerful: [] });
+  const [modelFetchState, setModelFetchState] = useState<Record<ModelTier, string>>({
+    fast: "Not loaded",
+    balanced: "Not loaded",
+    powerful: "Not loaded",
+  });
   const [recordingHotkey, setRecordingHotkey] = useState<HotkeyTarget | null>(null);
   const [hotkeyApplyState, setHotkeyApplyState] = useState("Applied");
   const [hotkeyPopupOpen, setHotkeyPopupOpen] = useState(false);
@@ -157,8 +196,7 @@ function MainApp() {
     () => settings.floatingActions.filter((item) => item.enabled),
     [settings.floatingActions],
   );
-  const activeProviderReady =
-    settings.provider === "openai" ? Boolean(settings.openaiApiKey.trim()) : Boolean(settings.geminiApiKey.trim());
+  const activeProviderReady = modelTiers.every((tier) => tierReady(tier.id));
   const inlineReady = settings.inlineEnabled && enabledCommands.length > 0;
   const settingsDirty = useMemo(
     () => JSON.stringify(settings) !== JSON.stringify(savedSettings),
@@ -244,8 +282,8 @@ function MainApp() {
   }, [inlineBuffer]);
 
   useEffect(() => {
-    setProviderTestState("Not tested");
-  }, [settings.provider, settings.model, settings.fastModel, settings.balancedModel, settings.powerfulModel, settings.openaiApiKey, settings.geminiApiKey]);
+    setProviderTestState({ fast: "Not tested", balanced: "Not tested", powerful: "Not tested" });
+  }, [settings.fastProvider, settings.fastModel, settings.fastApiKey, settings.fastBaseUrl, settings.balancedProvider, settings.balancedModel, settings.balancedApiKey, settings.balancedBaseUrl, settings.powerfulProvider, settings.powerfulModel, settings.powerfulApiKey, settings.powerfulBaseUrl]);
 
   async function handleFloatingAction(actionId: string) {
     const actionConfig = settings.floatingActions.find((item) => item.id === actionId);
@@ -296,29 +334,29 @@ function MainApp() {
     }
   }
 
-  async function handleTestProvider() {
-    setProviderTestState("Testing");
+  async function handleTestProvider(tier: ModelTier) {
+    setProviderTestState((current) => ({ ...current, [tier]: "Testing" }));
     try {
-      const response = await testProvider(settings);
+      const response = await testProvider(settings, tier);
       const compact = response.trim().replace(/\s+/g, " ");
-      setProviderTestState(compact || "Provider responded");
+      setProviderTestState((current) => ({ ...current, [tier]: compact || "Provider responded" }));
       setResult(compact || "Provider responded");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Provider test failed";
-      setProviderTestState(message);
+      setProviderTestState((current) => ({ ...current, [tier]: message }));
       setResult(`Provider test failed: ${message}`);
     }
   }
 
-  async function handleFetchModelIds() {
-    setModelFetchState("Loading");
+  async function handleFetchModelIds(tier: ModelTier) {
+    setModelFetchState((current) => ({ ...current, [tier]: "Loading" }));
     try {
-      const ids = await getModelIds(settings);
-      setModelIds(ids);
-      setModelFetchState(ids.length ? `${ids.length} models loaded` : "No models returned");
+      const ids = await getModelIds(settings, tier);
+      setModelIds((current) => ({ ...current, [tier]: ids }));
+      setModelFetchState((current) => ({ ...current, [tier]: ids.length ? `${ids.length} models loaded` : "No models returned" }));
     } catch (error) {
-      setModelIds([]);
-      setModelFetchState(error instanceof Error ? error.message : "Load failed");
+      setModelIds((current) => ({ ...current, [tier]: [] }));
+      setModelFetchState((current) => ({ ...current, [tier]: error instanceof Error ? error.message : "Load failed" }));
     }
   }
 
@@ -362,33 +400,116 @@ function MainApp() {
     }
   }
 
-  function updateModelField(field: "fastModel" | "balancedModel" | "powerfulModel", value: string) {
+  function tierReady(tier: ModelTier) {
+    const provider = settings[tierField(tier, "Provider")] as AppSettings["provider"];
+    const apiKey = String(settings[tierField(tier, "ApiKey")] || "").trim();
+    const baseUrl = String(settings[tierField(tier, "BaseUrl")] || "").trim();
+    if (provider === "custom") return Boolean(apiKey && baseUrl);
+    return Boolean(apiKey);
+  }
+
+  function updateTierField(tier: ModelTier, patch: Partial<Record<"provider" | "model" | "apiKey" | "baseUrl", string>>) {
     setSettings((current) => ({
       ...current,
-      [field]: value,
-      model: field === "balancedModel" ? value : current.model,
+      ...(patch.provider ? { [tierField(tier, "Provider")]: patch.provider as AppSettings["provider"] } : {}),
+      ...(patch.model !== undefined ? { [tierField(tier, "Model")]: patch.model, ...(tier === "balanced" ? { model: patch.model } : {}) } : {}),
+      ...(patch.apiKey !== undefined ? { [tierField(tier, "ApiKey")]: patch.apiKey } : {}),
+      ...(patch.baseUrl !== undefined ? { [tierField(tier, "BaseUrl")]: patch.baseUrl } : {}),
     }));
   }
 
-  function renderModelField(field: "fastModel" | "balancedModel" | "powerfulModel", label: string, hint: string) {
-    const value = settings[field] || settings.model;
+  function renderTierProfile(tier: ModelTier) {
+    const meta = modelTiers.find((item) => item.id === tier)!;
+    const provider = settings[tierField(tier, "Provider")] as AppSettings["provider"];
+    const model = String(settings[tierField(tier, "Model")] || "");
+    const apiKey = String(settings[tierField(tier, "ApiKey")] || "");
+    const baseUrl = String(settings[tierField(tier, "BaseUrl")] || "");
+    const ids = modelIds[tier];
+    const fetchState = modelFetchState[tier];
+    const testState = providerTestState[tier];
+    const ready = tierReady(tier);
+    const hasError = testState.toLowerCase().includes("failed") || testState.toLowerCase().includes("error") || testState.toLowerCase().includes("key");
+
     return (
-      <label className="field">
-        <span>{label}</span>
-        {modelIds.length > 0 ? (
-          <select value={value} onChange={(event) => updateModelField(field, event.target.value)}>
-            {!modelIds.includes(value) && <option value={value}>{value}</option>}
-            {modelIds.map((modelId) => (
-              <option key={`${field}-${modelId}`} value={modelId}>
-                {modelId}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <ImeInput value={value} onValueChange={(next) => updateModelField(field, next)} />
-        )}
-        <small className="field-help">{hint}</small>
-      </label>
+      <section className="tier-config-card" key={tier}>
+        <div className="tier-config-head">
+          <div>
+            <h3>{meta.label}</h3>
+            <p>{meta.prefix}function text/ · {meta.description}</p>
+          </div>
+          <span className={`status-pill ${ready ? "" : "status-pill-warn"}`}>{ready ? "Ready" : "Missing config"}</span>
+        </div>
+        <div className="tier-config-grid">
+          <label className="field">
+            <span>Provider</span>
+            <select
+              value={provider}
+              onChange={(event) => {
+                updateTierField(tier, {
+                  provider: event.target.value,
+                  model: defaultModelForTier(event.target.value as AppSettings["provider"], tier),
+                  apiKey: "",
+                  baseUrl: "",
+                });
+                setModelIds((current) => ({ ...current, [tier]: [] }));
+                setModelFetchState((current) => ({ ...current, [tier]: "Not loaded" }));
+              }}
+            >
+              {aiProviders.map((item) => (
+                <option key={item} value={item}>{providerLabel(item)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Model</span>
+            {ids.length > 0 ? (
+              <select value={model} onChange={(event) => updateTierField(tier, { model: event.target.value })}>
+                {!ids.includes(model) && <option value={model}>{model}</option>}
+                {ids.map((modelId) => (
+                  <option key={`${tier}-${modelId}`} value={modelId}>{modelId}</option>
+                ))}
+              </select>
+            ) : (
+              <ImeInput value={model} onValueChange={(value) => updateTierField(tier, { model: value })} />
+            )}
+          </label>
+          <label className="field">
+            <span>API key</span>
+            <ImeInput
+              autoComplete="off"
+              placeholder={provider === "gemini" ? "AIza..." : "sk-..."}
+              type="password"
+              value={apiKey}
+              onValueChange={(value) => updateTierField(tier, { apiKey: value })}
+            />
+          </label>
+          {provider === "custom" && (
+            <label className="field">
+              <span>base_url</span>
+              <ImeInput
+                autoComplete="off"
+                placeholder="https://api.example.com/v1"
+                value={baseUrl}
+                onValueChange={(value) => updateTierField(tier, { baseUrl: value })}
+              />
+            </label>
+          )}
+        </div>
+        <div className="tier-config-actions">
+          <button className="ghost-button" disabled={!ready || fetchState === "Loading"} onClick={() => handleFetchModelIds(tier)} type="button">
+            <RefreshCw size={15} className={fetchState === "Loading" ? "spin-icon" : ""} />
+            Get models
+          </button>
+          <button className="primary-button" disabled={!ready || testState === "Testing"} onClick={() => handleTestProvider(tier)} type="button">
+            {testState === "Testing" ? <RefreshCw className="spin-icon" size={15} /> : <Sparkles size={15} />}
+            Test {meta.label}
+          </button>
+        </div>
+        <div className="tier-config-status">
+          <span className={fetchState.toLowerCase().includes("failed") || fetchState.toLowerCase().includes("error") ? "field-error" : "field-help"}>{fetchState}</span>
+          <span className={hasError ? "field-error" : "field-help"}>{testState}</span>
+        </div>
+      </section>
     );
   }
 
@@ -459,7 +580,7 @@ function MainApp() {
                   <div className="metric-card">
                     <span>Provider</span>
                     <strong>{activeProviderReady ? "Ready" : "Needs API key"}</strong>
-                    <small>{settings.provider === "openai" ? "OpenAI" : "Gemini"} · / {settings.fastModel} · // {settings.balancedModel} · /// {settings.powerfulModel}</small>
+                    <small>/ {providerLabel(settings.fastProvider)} · // {providerLabel(settings.balancedProvider)} · /// {providerLabel(settings.powerfulProvider)}</small>
                   </div>
                   <div className="metric-card">
                     <span>Translate Pair</span>
@@ -580,96 +701,14 @@ function MainApp() {
                 <div className="section-heading">
                   <div>
                     <h2>AI Providers</h2>
-                    <p>Chọn engine nhanh cho inline command và floating actions.</p>
+                    <p>Cấu hình độc lập 3 profile model. Inline dùng /, //, /// để chọn Fast, Balanced, Powerful.</p>
                   </div>
                   <span className={`status-pill ${activeProviderReady ? "" : "status-pill-warn"}`}>
-                    {activeProviderReady ? "Ready" : "API key required"}
+                    {activeProviderReady ? "All profiles ready" : "Some profiles need config"}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {(["openai", "gemini"] as const).map((provider) => (
-                    <button
-                      key={provider}
-                      className={`provider-card ${settings.provider === provider ? "provider-card-active" : ""}`}
-                      onClick={() => {
-                        setModelIds([]);
-                        setModelFetchState("Not loaded");
-                        setSettings((current) => ({
-                          ...current,
-                          provider,
-                          ...defaultModelsForProvider(provider),
-                        }));
-                      }}
-                      type="button"
-                    >
-                      <Globe2 size={19} />
-                      <span>{provider === "openai" ? "OpenAI" : "Gemini"}</span>
-                      <small>{provider === "openai" ? "Fast text actions" : "Low latency multimodal"}</small>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mt-4">
-                  <div className="model-tier-head">
-                    <div>
-                      <h3>Inline model tiers</h3>
-                      <p>/ gọi model nhanh, // gọi model trung bình, /// gọi model mạnh.</p>
-                    </div>
-                    <button
-                      className="ghost-button model-fetch-button"
-                      disabled={!activeProviderReady || modelFetchState === "Loading"}
-                      onClick={handleFetchModelIds}
-                      type="button"
-                    >
-                      <RefreshCw size={15} className={modelFetchState === "Loading" ? "spin-icon" : ""} />
-                      Get model IDs
-                    </button>
-                  </div>
-                  <div className="model-tier-grid">
-                    {renderModelField("fastModel", "Fast · /function", "Dùng cho lệnh nhẹ cần phản hồi nhanh.")}
-                    {renderModelField("balancedModel", "Balanced · //function", "Mặc định cho floating actions và test provider.")}
-                    {renderModelField("powerfulModel", "Powerful · ///function", "Dùng cho tác vụ khó, cần chất lượng cao hơn.")}
-                  </div>
-                  <small
-                    className={
-                      modelFetchState.toLowerCase().includes("error") ||
-                      modelFetchState.toLowerCase().includes("failed")
-                        ? "field-error"
-                        : "field-help"
-                    }
-                  >
-                    {activeProviderReady ? modelFetchState : "Add the active provider API key first"}
-                  </small>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <label className="field">
-                    <span>OpenAI API key</span>
-                    <ImeInput
-                      autoComplete="off"
-                      placeholder="sk-..."
-                      type="password"
-                      value={settings.openaiApiKey}
-                      onValueChange={(value) => {
-                        setModelIds([]);
-                        setModelFetchState("Not loaded");
-                        setSettings({ ...settings, openaiApiKey: value });
-                      }}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Gemini API key</span>
-                    <ImeInput
-                      autoComplete="off"
-                      placeholder="AIza..."
-                      type="password"
-                      value={settings.geminiApiKey}
-                      onValueChange={(value) => {
-                        setModelIds([]);
-                        setModelFetchState("Not loaded");
-                        setSettings({ ...settings, geminiApiKey: value });
-                      }}
-                    />
-                  </label>
+                <div className="tier-config-list">
+                  {modelTiers.map((tier) => renderTierProfile(tier.id))}
                 </div>
               </section>
               )}
@@ -824,37 +863,21 @@ function MainApp() {
                   </div>
                   <div className="readiness-list">
                     <div>
-                      <span>Active provider</span>
-                      <strong>{settings.provider === "openai" ? "OpenAI" : "Gemini"}</strong>
+                      <span>Profiles</span>
+                      <strong>{activeProviderReady ? "All configured" : "Missing config"}</strong>
                     </div>
                     <div>
-                      <span>Required API key</span>
-                      <strong>{activeProviderReady ? "Configured" : "Missing"}</strong>
+                      <span>Fast · /</span>
+                      <strong>{providerLabel(settings.fastProvider)} · {settings.fastModel}</strong>
                     </div>
                     <div>
-                      <span>Fast model · /</span>
-                      <strong>{settings.fastModel}</strong>
+                      <span>Balanced · //</span>
+                      <strong>{providerLabel(settings.balancedProvider)} · {settings.balancedModel}</strong>
                     </div>
                     <div>
-                      <span>Balanced model · //</span>
-                      <strong>{settings.balancedModel}</strong>
+                      <span>Powerful · ///</span>
+                      <strong>{providerLabel(settings.powerfulProvider)} · {settings.powerfulModel}</strong>
                     </div>
-                    <div>
-                      <span>Powerful model · ///</span>
-                      <strong>{settings.powerfulModel}</strong>
-                    </div>
-                  </div>
-                  <button
-                    className="primary-button mt-3 w-full justify-center"
-                    disabled={!activeProviderReady || providerTestState === "Testing"}
-                    onClick={handleTestProvider}
-                    type="button"
-                  >
-                    {providerTestState === "Testing" ? <RefreshCw className="spin-icon" size={16} /> : <Sparkles size={16} />}
-                    Test Provider
-                  </button>
-                  <div className={`provider-test-state ${providerTestState.includes("failed") || providerTestState.includes("Error") || providerTestState.includes("API") ? "provider-test-state-error" : ""}`}>
-                    {providerTestState}
                   </div>
                 </section>
               )}

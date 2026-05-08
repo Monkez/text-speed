@@ -311,6 +311,59 @@ button {
   gap: 0.75rem;
 }
 
+.tier-config-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.tier-config-card {
+  display: grid;
+  gap: 0.8rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 0.9rem;
+}
+
+.tier-config-head,
+.tier-config-actions,
+.tier-config-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.tier-config-head h3 {
+  margin: 0;
+  color: rgb(244 244 245);
+  font-size: 0.95rem;
+  font-weight: 750;
+}
+
+.tier-config-head p {
+  margin: 0.18rem 0 0;
+  color: rgb(113 113 122);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.tier-config-grid {
+  display: grid;
+  grid-template-columns: 150px minmax(180px, 1fr) minmax(180px, 1fr) minmax(180px, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.tier-config-actions {
+  justify-content: flex-end;
+}
+
+.tier-config-status {
+  align-items: flex-start;
+  font-size: 0.74rem;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
@@ -1398,12 +1451,16 @@ kbd {
   .function-fields,
   .parser-test-strip,
   .model-tier-grid,
+  .tier-config-grid,
   .hotkey-grid,
   .logs-grid {
     grid-template-columns: 1fr;
   }
 
-  .model-tier-head {
+  .model-tier-head,
+  .tier-config-head,
+  .tier-config-actions,
+  .tier-config-status {
     display: grid;
   }
 }

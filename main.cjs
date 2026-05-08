@@ -25,11 +25,23 @@ const fallbackSettings = {
   translationLanguageB: "English",
   provider: "openai",
   model: "gpt-4.1-mini",
+  fastProvider: "openai",
   fastModel: "gpt-4.1-mini",
+  fastApiKey: "",
+  fastBaseUrl: "",
+  balancedProvider: "openai",
   balancedModel: "gpt-4.1-mini",
+  balancedApiKey: "",
+  balancedBaseUrl: "",
+  powerfulProvider: "openai",
   powerfulModel: "gpt-4.1",
+  powerfulApiKey: "",
+  powerfulBaseUrl: "",
   openaiApiKey: "",
+  claudeApiKey: "",
   geminiApiKey: "",
+  customApiKey: "",
+  customBaseUrl: "",
   popupHotkey: "Ctrl + Space",
   ocrHotkey: "Ctrl + Shift + S",
   inlineEnabled: true,
@@ -60,26 +72,48 @@ function settingsPath() {
 function loadSettings() {
   try {
     const loaded = { ...fallbackSettings, ...JSON.parse(fs.readFileSync(settingsPath(), "utf8")) };
-    loaded.fastModel = loaded.fastModel || loaded.model || fallbackSettings.fastModel;
-    loaded.balancedModel = loaded.balancedModel || loaded.model || fallbackSettings.balancedModel;
-    loaded.powerfulModel = loaded.powerfulModel || loaded.model || fallbackSettings.powerfulModel;
-    loaded.model = loaded.model || loaded.balancedModel;
-    return loaded;
+    return normalizeSettings(loaded);
   } catch {
     return fallbackSettings;
   }
 }
 
 function saveSettings(settings) {
-  const next = { ...fallbackSettings, ...settings };
-  next.fastModel = next.fastModel || next.model || fallbackSettings.fastModel;
-  next.balancedModel = next.balancedModel || next.model || fallbackSettings.balancedModel;
-  next.powerfulModel = next.powerfulModel || next.model || fallbackSettings.powerfulModel;
-  next.model = next.balancedModel || next.model;
+  const next = normalizeSettings({ ...fallbackSettings, ...settings });
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
   fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2), "utf8");
   registerHotkeys(next);
   return next;
+}
+
+function normalizeSettings(settings) {
+  const next = { ...fallbackSettings, ...settings };
+  next.fastProvider = next.fastProvider || next.provider || fallbackSettings.fastProvider;
+  next.balancedProvider = next.balancedProvider || next.provider || fallbackSettings.balancedProvider;
+  next.powerfulProvider = next.powerfulProvider || next.provider || fallbackSettings.powerfulProvider;
+  next.fastModel = next.fastModel || next.model || fallbackSettings.fastModel;
+  next.balancedModel = next.balancedModel || next.model || fallbackSettings.balancedModel;
+  next.powerfulModel = next.powerfulModel || next.model || fallbackSettings.powerfulModel;
+  next.fastApiKey = next.fastApiKey || providerKey(next, next.fastProvider);
+  next.balancedApiKey = next.balancedApiKey || providerKey(next, next.balancedProvider);
+  next.powerfulApiKey = next.powerfulApiKey || providerKey(next, next.powerfulProvider);
+  next.fastBaseUrl = next.fastBaseUrl || providerBaseUrl(next, next.fastProvider);
+  next.balancedBaseUrl = next.balancedBaseUrl || providerBaseUrl(next, next.balancedProvider);
+  next.powerfulBaseUrl = next.powerfulBaseUrl || providerBaseUrl(next, next.powerfulProvider);
+  next.provider = next.balancedProvider;
+  next.model = next.balancedModel;
+  return next;
+}
+
+function providerKey(settings, provider) {
+  if (provider === "openai") return settings.openaiApiKey || "";
+  if (provider === "claude") return settings.claudeApiKey || "";
+  if (provider === "gemini") return settings.geminiApiKey || "";
+  return settings.customApiKey || "";
+}
+
+function providerBaseUrl(settings, provider) {
+  return provider === "custom" ? settings.customBaseUrl || "" : "";
 }
 
 function parseInlineBuffer(buffer) {
@@ -95,10 +129,47 @@ function parseInlineBuffer(buffer) {
   return { command, content, fullText: `${prefix}${command} ${match[3]}/`, prefix, modelTier };
 }
 
+function profileForTier(settings, tier) {
+  const prefix = tier === "fast" ? "fast" : tier === "powerful" ? "powerful" : "balanced";
+  const provider = settings[`${prefix}Provider`] || settings.provider || "openai";
+  return {
+    provider,
+    model: settings[`${prefix}Model`] || settings.model || fallbackSettings[`${prefix}Model`],
+    apiKey: settings[`${prefix}ApiKey`] || providerKey(settings, provider),
+    baseUrl: settings[`${prefix}BaseUrl`] || providerBaseUrl(settings, provider),
+  };
+}
+
 function modelForTier(settings, tier) {
-  if (tier === "fast") return settings.fastModel || settings.model || fallbackSettings.fastModel;
-  if (tier === "powerful") return settings.powerfulModel || settings.model || fallbackSettings.powerfulModel;
-  return settings.balancedModel || settings.model || fallbackSettings.balancedModel;
+  return profileForTier(settings, tier).model;
+}
+
+function normalizeBaseUrl(baseUrl) {
+  return String(baseUrl || "").trim().replace(/\/+$/, "");
+}
+
+function settingsForProfile(settings, profile) {
+  return {
+    ...settings,
+    provider: profile.provider,
+    model: profile.model,
+    openaiApiKey: profile.provider === "openai" ? profile.apiKey : settings.openaiApiKey,
+    claudeApiKey: profile.provider === "claude" ? profile.apiKey : settings.claudeApiKey,
+    geminiApiKey: profile.provider === "gemini" ? profile.apiKey : settings.geminiApiKey,
+    customApiKey: profile.provider === "custom" ? profile.apiKey : settings.customApiKey,
+    customBaseUrl: profile.provider === "custom" ? profile.baseUrl : settings.customBaseUrl,
+  };
+}
+
+function openAiCompatibleText(value) {
+  return value?.choices?.[0]?.message?.content?.trim()
+    || value?.choices?.[0]?.text?.trim()
+    || value?.output_text
+    || "";
+}
+
+function claudeText(value) {
+  return (value?.content || []).map((part) => part?.text || "").join("").trim();
 }
 
 function replaceLast(source, needle, replacement) {
@@ -186,9 +257,42 @@ function instructionFor(action, settings) {
   return "Rewrite the text professionally, concisely, and politely.";
 }
 
-async function runAi(action, prompt, text, settings, modelOverride) {
+async function runAi(action, prompt, text, settings, modelOverride, providerOverride) {
   const instruction = `${instructionFor(action, settings)}\n${prompt || ""}\n\nText:\n${text}`;
-  if (settings.provider === "gemini") {
+  const provider = providerOverride || settings.provider;
+
+  if (provider === "custom") {
+    const key = settings.customApiKey || process.env.TEXTSPEED_CUSTOM_API_KEY;
+    if (!key) throw new Error("Custom provider API key is not set");
+    const baseUrl = normalizeBaseUrl(settings.customBaseUrl);
+    if (!baseUrl) throw new Error("Custom provider base URL is not set");
+    const model = modelOverride || settings.model || settings.balancedModel;
+    if (!model) throw new Error("Custom provider model is not set");
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({ model, messages: [{ role: "user", content: instruction }] }),
+    });
+    const value = await response.json();
+    if (!response.ok) throw new Error(JSON.stringify(value));
+    return openAiCompatibleText(value);
+  }
+
+  if (provider === "claude") {
+    const key = settings.claudeApiKey || process.env.ANTHROPIC_API_KEY;
+    if (!key) throw new Error("Claude API key is not set");
+    const model = modelOverride || settings.model || settings.balancedModel || "claude-3-5-haiku-latest";
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content: instruction }] }),
+    });
+    const value = await response.json();
+    if (!response.ok) throw new Error(JSON.stringify(value));
+    return claudeText(value);
+  }
+
+  if (provider === "gemini") {
     const key = settings.geminiApiKey || process.env.GEMINI_API_KEY;
     if (!key) throw new Error("GEMINI_API_KEY is not set");
     const model = modelOverride || settings.model || settings.balancedModel || "gemini-2.5-flash-lite";
@@ -592,11 +696,16 @@ async function handleInlineSlashProbe() {
   inlineBusy = true;
 
   let originalClipboard = clipboard.readText();
+  let selectedTextForError = "";
+  let runningTextForError = "";
+  let parsedForError = null;
   try {
     pushStatus(inlineStatus, "Inline slash probe");
     const extraction = await selectAllAndCopyFocusedText();
     originalClipboard = extraction.previous;
+    selectedTextForError = extraction.selected;
     const parsed = parseInlineBuffer(extraction.selected);
+    parsedForError = parsed;
     if (!parsed) {
       await sendKeys("{RIGHT}");
       cleanupClipboard(originalClipboard);
@@ -619,11 +728,13 @@ async function handleInlineSlashProbe() {
       return;
     }
 
-    const selectedModel = modelForTier(settings, parsed.modelTier);
-    pushStatus(inlineStatus, `Inline running: ${parsed.prefix}${parsed.command} (${parsed.modelTier}: ${selectedModel})`);
+    const profile = profileForTier(settings, parsed.modelTier);
+    const profileSettings = settingsForProfile(settings, profile);
+    pushStatus(inlineStatus, `Inline running: ${parsed.prefix}${parsed.command} (${parsed.modelTier}: ${profile.provider} / ${profile.model})`);
     await pasteText(runningText);
+    runningTextForError = runningText;
 
-    const output = await runAi(command.action, command.prompt, parsed.content, settings, selectedModel);
+    const output = await runAi(command.action, command.prompt, parsed.content, profileSettings, profile.model, profile.provider);
     const finalText = replaceLast(runningText, INLINE_RUNNING_MARKER, output) || output;
     await sendKeys("^a");
     await delay(100);
@@ -632,6 +743,19 @@ async function handleInlineSlashProbe() {
     cleanupClipboard(originalClipboard);
   } catch (error) {
     pushStatus(inlineStatus, `Inline failed: ${error.message}`);
+    const errorText = "[TextSpeed error!]";
+    const finalText = runningTextForError
+      ? replaceLast(runningTextForError, INLINE_RUNNING_MARKER, errorText)
+      : parsedForError && selectedTextForError
+        ? replaceLast(selectedTextForError, parsedForError.fullText, errorText)
+        : errorText;
+    try {
+      await sendKeys("^a");
+      await delay(100);
+      await pasteText(finalText || errorText);
+    } catch (pasteError) {
+      pushStatus(inlineStatus, `Inline error display failed: ${pasteError.message}`);
+    }
     cleanupClipboard(originalClipboard);
   } finally {
     await delay(150);
@@ -758,21 +882,26 @@ ipcMain.handle("execute_inline_command", async (_event, payload) => {
   if (!parsed || !settings.inlineEnabled) return null;
   const command = settings.commands.find((item) => item.enabled && item.name === parsed.command);
   if (!command) return null;
-  const selectedModel = modelForTier(settings, parsed.modelTier);
-  const output = await runAi(command.action, command.prompt, parsed.content, settings, selectedModel);
-  return { command: parsed.command, action: command.action, input: parsed.content, output, model: selectedModel, modelTier: parsed.modelTier, typedLength: parsed.fullText.length };
+  const profile = profileForTier(settings, parsed.modelTier);
+  const profileSettings = settingsForProfile(settings, profile);
+  const output = await runAi(command.action, command.prompt, parsed.content, profileSettings, profile.model, profile.provider);
+  return { command: parsed.command, action: command.action, input: parsed.content, output, model: profile.model, modelTier: parsed.modelTier, typedLength: parsed.fullText.length };
 });
 ipcMain.handle("run_ai_action", async (_event, payload) => {
   const settings = loadSettings();
   return runAi(payload.action, "", payload.text, settings);
 });
 ipcMain.handle("test_provider", async (_event, payload) => {
-  const settings = { ...fallbackSettings, ...(payload.settings || {}) };
+  const settings = normalizeSettings({ ...fallbackSettings, ...(payload.settings || {}) });
+  const profile = payload.tier ? profileForTier(settings, payload.tier) : profileForTier(settings, "balanced");
+  const profileSettings = settingsForProfile(settings, profile);
   const output = await runAi(
     "explain",
     "Provider connectivity test. Reply with only this exact text if the provider works: TextSpeed provider OK",
     "TextSpeed provider connectivity test",
-    settings,
+    profileSettings,
+    profile.model,
+    profile.provider,
   );
   return output || "TextSpeed provider OK";
 });
@@ -783,15 +912,35 @@ ipcMain.handle("run_floating_action", async (_event, payload) => {
   return runAi(action.action, action.prompt, payload.text, settings);
 });
 ipcMain.handle("get_model_ids", async (_event, payload) => {
-  const settings = payload.settings || loadSettings();
-  if (settings.provider === "gemini") {
-    const key = settings.geminiApiKey || process.env.GEMINI_API_KEY;
+  const settings = normalizeSettings(payload.settings || loadSettings());
+  const profile = payload.tier ? profileForTier(settings, payload.tier) : profileForTier(settings, "balanced");
+  const profileSettings = settingsForProfile(settings, profile);
+  if (profile.provider === "claude") {
+    return [
+      "claude-3-5-haiku-latest",
+      "claude-3-5-sonnet-latest",
+      "claude-sonnet-4-5",
+      "claude-opus-4-1",
+    ];
+  }
+  if (profile.provider === "custom") {
+    const key = profileSettings.customApiKey || process.env.TEXTSPEED_CUSTOM_API_KEY;
+    if (!key) throw new Error("Custom provider API key is not set");
+    const baseUrl = normalizeBaseUrl(profileSettings.customBaseUrl);
+    if (!baseUrl) throw new Error("Custom provider base URL is not set");
+    const response = await fetch(`${baseUrl}/models`, { headers: { authorization: `Bearer ${key}` } });
+    const value = await response.json();
+    if (!response.ok) throw new Error(JSON.stringify(value));
+    return (value.data || value.models || []).map((model) => String(model.id || model.name || "").replace(/^models\//, "")).filter(Boolean);
+  }
+  if (profile.provider === "gemini") {
+    const key = profileSettings.geminiApiKey || process.env.GEMINI_API_KEY;
     if (!key) throw new Error("GEMINI_API_KEY is not set");
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
     const value = await response.json();
     return (value.models || []).map((model) => String(model.name || "").replace(/^models\//, "")).filter(Boolean);
   }
-  const key = settings.openaiApiKey || process.env.OPENAI_API_KEY;
+  const key = profileSettings.openaiApiKey || process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY is not set");
   const response = await fetch("https://api.openai.com/v1/models", { headers: { authorization: `Bearer ${key}` } });
   const value = await response.json();
