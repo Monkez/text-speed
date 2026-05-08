@@ -38,6 +38,7 @@ struct HotkeyEventPayload {
 pub struct InlineRuntime {
     enabled: Arc<AtomicBool>,
     suppress: Arc<AtomicBool>,
+    app_focused: Arc<AtomicBool>,
     started: Arc<AtomicBool>,
     shift_down: Arc<AtomicBool>,
     ctrl_down: Arc<AtomicBool>,
@@ -54,6 +55,7 @@ impl InlineRuntime {
         Self {
             enabled: Arc::new(AtomicBool::new(false)),
             suppress: Arc::new(AtomicBool::new(false)),
+            app_focused: Arc::new(AtomicBool::new(false)),
             started: Arc::new(AtomicBool::new(false)),
             shift_down: Arc::new(AtomicBool::new(false)),
             ctrl_down: Arc::new(AtomicBool::new(false)),
@@ -94,6 +96,18 @@ impl InlineRuntime {
         });
     }
 
+    pub fn set_app_focused(&self, focused: bool) {
+        self.app_focused.store(focused, Ordering::SeqCst);
+        if focused {
+            if let Ok(mut buffer) = self.buffer.lock() {
+                buffer.clear();
+            }
+            if let Ok(mut pending) = self.pending_inline_attempt.lock() {
+                pending.take();
+            }
+        }
+    }
+
     pub fn status(&self) -> Vec<String> {
         self.status
             .lock()
@@ -102,6 +116,7 @@ impl InlineRuntime {
     }
 
     fn handle_event(&self, event: Event, settings: Arc<Mutex<AppSettings>>, app: AppHandle) {
+        let app_focused = self.app_focused.load(Ordering::SeqCst);
         let key = match event.event_type {
             EventType::ButtonPress(_) => {
                 if let Ok(mut buffer) = self.buffer.lock() {
@@ -155,6 +170,10 @@ impl InlineRuntime {
                 return;
             }
             EventType::KeyRelease(Key::Slash) => {
+                if app_focused {
+                    return;
+                }
+
                 if self.maybe_handle_hotkey(Key::Slash, &settings, &app) {
                     return;
                 }
@@ -179,6 +198,10 @@ impl InlineRuntime {
                 return;
             }
             EventType::KeyRelease(key) => {
+                if app_focused {
+                    return;
+                }
+
                 if self.maybe_handle_hotkey(key, &settings, &app) {
                     return;
                 }
@@ -196,7 +219,10 @@ impl InlineRuntime {
             _ => return,
         };
 
-        if self.suppress.load(Ordering::SeqCst) || !self.enabled.load(Ordering::SeqCst) {
+        if app_focused
+            || self.suppress.load(Ordering::SeqCst)
+            || !self.enabled.load(Ordering::SeqCst)
+        {
             return;
         }
 

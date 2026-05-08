@@ -1012,6 +1012,12 @@ function ImeInput({ onValueChange, value, ...props }: ImeInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
 
+  function commit(next: string) {
+    if (next !== value) {
+      onValueChange(next);
+    }
+  }
+
   useEffect(() => {
     const input = inputRef.current;
     if (input && document.activeElement !== input && input.value !== value) {
@@ -1024,18 +1030,20 @@ function ImeInput({ onValueChange, value, ...props }: ImeInputProps) {
       {...props}
       defaultValue={value}
       onInput={(event) => {
-        const next = event.currentTarget.value;
-        if (!composing.current) onValueChange(next);
+        props.onInput?.(event);
       }}
       onCompositionEnd={(event) => {
         composing.current = false;
-        const next = event.currentTarget.value;
-        onValueChange(next);
+        commit(event.currentTarget.value);
         props.onCompositionEnd?.(event);
       }}
       onCompositionStart={(event) => {
         composing.current = true;
         props.onCompositionStart?.(event);
+      }}
+      onBlur={(event) => {
+        commit(event.currentTarget.value);
+        props.onBlur?.(event);
       }}
       ref={inputRef}
     />
@@ -1051,6 +1059,12 @@ function ImeTextarea({ onValueChange, value, ...props }: ImeTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
 
+  function commit(next: string) {
+    if (next !== value) {
+      onValueChange(next);
+    }
+  }
+
   useEffect(() => {
     const textarea = textareaRef.current;
     if (textarea && document.activeElement !== textarea && textarea.value !== value) {
@@ -1063,18 +1077,20 @@ function ImeTextarea({ onValueChange, value, ...props }: ImeTextareaProps) {
       {...props}
       defaultValue={value}
       onInput={(event) => {
-        const next = event.currentTarget.value;
-        if (!composing.current) onValueChange(next);
+        props.onInput?.(event);
       }}
       onCompositionEnd={(event) => {
         composing.current = false;
-        const next = event.currentTarget.value;
-        onValueChange(next);
+        commit(event.currentTarget.value);
         props.onCompositionEnd?.(event);
       }}
       onCompositionStart={(event) => {
         composing.current = true;
         props.onCompositionStart?.(event);
+      }}
+      onBlur={(event) => {
+        commit(event.currentTarget.value);
+        props.onBlur?.(event);
       }}
       ref={textareaRef}
     />

@@ -35,6 +35,13 @@ pub fn run() {
             textspeed::commands::get_runtime_status,
         ])
         .on_window_event(|window, event| {
+            if matches!(window.label(), "main" | "floating") {
+                if let WindowEvent::Focused(focused) = event {
+                    let state = window.state::<TextSpeedState>();
+                    state.inline_runtime.set_app_focused(*focused);
+                }
+            }
+
             if window.label() == "floating" {
                 if let WindowEvent::Focused(false) = event {
                     let _ = window.hide();
