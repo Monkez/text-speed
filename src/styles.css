@@ -1130,6 +1130,14 @@ kbd {
   background: rgb(94 234 212);
 }
 
+.save-button-unsaved {
+  color: rgb(244 244 245);
+}
+
+.save-button-saved {
+  color: rgb(4 47 46);
+}
+
 .ghost-button {
   border: 1px solid rgba(255, 255, 255, 0.09);
   background: rgba(255, 255, 255, 0.05);
@@ -1138,6 +1146,19 @@ kbd {
 
 .ghost-button:hover {
   background: rgba(255, 255, 255, 0.09);
+}
+
+.provider-test-state {
+  margin-top: 0.65rem;
+  min-height: 1.1rem;
+  color: rgb(113 113 122);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.provider-test-state-error {
+  color: rgb(252 165 165);
 }
 
 .result-box {

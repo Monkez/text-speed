@@ -77,6 +77,10 @@ export async function getModelIds(settings: AppSettings): Promise<string[]> {
   return call<string[]>("get_model_ids", { settings });
 }
 
+export async function testProvider(settings: AppSettings): Promise<string> {
+  return call<string>("test_provider", { settings });
+}
+
 export async function readClipboardText(): Promise<string> {
   return call<string>("read_clipboard_text");
 }

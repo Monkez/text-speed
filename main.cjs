@@ -689,6 +689,16 @@ ipcMain.handle("run_ai_action", async (_event, payload) => {
   const settings = loadSettings();
   return runAi(payload.action, "", payload.text, settings);
 });
+ipcMain.handle("test_provider", async (_event, payload) => {
+  const settings = { ...fallbackSettings, ...(payload.settings || {}) };
+  const output = await runAi(
+    "explain",
+    "Provider connectivity test. Reply with only this exact text if the provider works: TextSpeed provider OK",
+    "TextSpeed provider connectivity test",
+    settings,
+  );
+  return output || "TextSpeed provider OK";
+});
 ipcMain.handle("run_floating_action", async (_event, payload) => {
   const settings = loadSettings();
   const action = settings.floatingActions.find((item) => item.enabled && item.id === payload.actionId);

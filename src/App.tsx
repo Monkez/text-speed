@@ -52,9 +52,9 @@ import {
   listenTextSpeedEvent,
   parseInlineBuffer,
   readClipboardText,
-  runAiAction,
   runFloatingAction,
   saveSettings,
+  testProvider,
   writeClipboardText,
 } from "./lib/tauri";
 
@@ -125,8 +125,8 @@ function App() {
 
 function MainApp() {
   const [settings, setSettings] = useState<AppSettings>(fallbackSettings);
+  const [savedSettings, setSavedSettings] = useState<AppSettings>(fallbackSettings);
   const [activeNav, setActiveNav] = useState("dashboard");
-  const [selectedAction, setSelectedAction] = useState<AiAction>("translate");
   const [selectedFloatingActionId, setSelectedFloatingActionId] = useState("translate");
   const [selectedText, setSelectedText] = useState(
     "Can you send me the final deck before tomorrow morning? I need to review the timeline and budget.",
@@ -138,6 +138,7 @@ function MainApp() {
   const [inlinePreview, setInlinePreview] = useState("Chưa nhận diện lệnh.");
   const [inlineResult, setInlineResult] = useState("Kết quả inline sẽ xuất hiện sau khi bấm Execute Inline.");
   const [saveState, setSaveState] = useState("Saved");
+  const [providerTestState, setProviderTestState] = useState("Not tested");
   const [modelIds, setModelIds] = useState<string[]>([]);
   const [modelFetchState, setModelFetchState] = useState("Not loaded");
   const [recordingHotkey, setRecordingHotkey] = useState<HotkeyTarget | null>(null);
@@ -153,10 +154,24 @@ function MainApp() {
   const activeProviderReady =
     settings.provider === "openai" ? Boolean(settings.openaiApiKey.trim()) : Boolean(settings.geminiApiKey.trim());
   const inlineReady = settings.inlineEnabled && enabledCommands.length > 0;
+  const settingsDirty = useMemo(
+    () => JSON.stringify(settings) !== JSON.stringify(savedSettings),
+    [settings, savedSettings],
+  );
+  const saveButtonLabel = saveState === "Saving" ? "Saving" : settingsDirty ? "Save" : "Saved";
 
   useEffect(() => {
     document.body.classList.add("floating-window-body");
-    getSettings().then(setSettings).catch(() => setSettings(fallbackSettings));
+    getSettings()
+      .then((loaded) => {
+        setSettings(loaded);
+        setSavedSettings(loaded);
+        setSaveState("Saved");
+      })
+      .catch(() => {
+        setSettings(fallbackSettings);
+        setSavedSettings(fallbackSettings);
+      });
     getRuntimeStatus().then(setStatus).catch(() => setStatus({system: ["UI ready", "Rust runtime chưa phản hồi"], inline: []}));
     const statusTimer = window.setInterval(() => {
       getRuntimeStatus().then(setStatus).catch(() => undefined);
@@ -222,18 +237,9 @@ function MainApp() {
       .catch(() => setInlinePreview("Parser chỉ hoạt động trong Tauri runtime."));
   }, [inlineBuffer]);
 
-  async function handleAction(action: AiAction = selectedAction) {
-    setBusy(true);
-    setSelectedAction(action);
-    try {
-      const response = await runAiAction(action, selectedText);
-      setResult(response);
-    } catch {
-      setResult(localFallback(action, selectedText, settings.translationLanguageA, settings.translationLanguageB, settings.preferredLanguage));
-    } finally {
-      setBusy(false);
-    }
-  }
+  useEffect(() => {
+    setProviderTestState("Not tested");
+  }, [settings.provider, settings.model, settings.openaiApiKey, settings.geminiApiKey]);
 
   async function handleFloatingAction(actionId: string) {
     const actionConfig = settings.floatingActions.find((item) => item.id === actionId);
@@ -241,7 +247,6 @@ function MainApp() {
 
     setBusy(true);
     setSelectedFloatingActionId(actionId);
-    setSelectedAction(actionConfig.action);
     try {
       const response = await runFloatingAction(actionId, selectedText);
       setResult(response);
@@ -261,7 +266,6 @@ function MainApp() {
         return;
       }
       setSelectedText(execution.input);
-      setSelectedAction(execution.action);
       setResult(execution.output);
       setInlineResult(`//${execution.command} thay inline command bằng:\n${execution.output}`);
     } catch {
@@ -278,10 +282,25 @@ function MainApp() {
     try {
       const saved = await saveSettings(settings);
       setSettings(saved);
+      setSavedSettings(saved);
       getRuntimeStatus().then(setStatus).catch(() => undefined);
       setSaveState("Saved");
     } catch {
-      setSaveState("Local only");
+      setSaveState("Save failed");
+    }
+  }
+
+  async function handleTestProvider() {
+    setProviderTestState("Testing");
+    try {
+      const response = await testProvider(settings);
+      const compact = response.trim().replace(/\s+/g, " ");
+      setProviderTestState(compact || "Provider responded");
+      setResult(compact || "Provider responded");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Provider test failed";
+      setProviderTestState(message);
+      setResult(`Provider test failed: ${message}`);
     }
   }
 
@@ -320,6 +339,7 @@ function MainApp() {
         ocrHotkey: normalizeHotkeyText(settings.ocrHotkey),
       });
       setSettings(saved);
+      setSavedSettings(saved);
       getRuntimeStatus().then(setStatus).catch(() => undefined);
       setHotkeyApplyState("Applied");
       setSaveState("Saved");
@@ -382,9 +402,14 @@ function MainApp() {
               <p className="text-sm text-zinc-500">{activePage.description}</p>
             </div>
             <div className="flex items-center gap-2">
-              <button className="primary-button" onClick={handleSave} type="button">
+              <button
+                className={`${settingsDirty || saveState === "Save failed" ? "ghost-button save-button-unsaved" : "primary-button save-button-saved"}`}
+                disabled={saveState === "Saving"}
+                onClick={handleSave}
+                type="button"
+              >
                 <Save size={16} />
-                {saveState}
+                {saveState === "Save failed" ? "Save failed" : saveButtonLabel}
               </button>
             </div>
           </header>
@@ -637,10 +662,12 @@ function MainApp() {
                     setInlineBuffer={setInlineBuffer}
                     setInlineResult={setInlineResult}
                     setSettings={setSettings}
+                    onSettingsSaved={setSavedSettings}
                     setStatus={setStatus}
                     settings={settings}
                   />
                   <FloatingActionsPanel
+                    onSettingsSaved={setSavedSettings}
                     setSettings={setSettings}
                     setStatus={setStatus}
                     settings={settings}
@@ -787,10 +814,18 @@ function MainApp() {
                       <strong>{settings.model}</strong>
                     </div>
                   </div>
-                  <button className="primary-button mt-3 w-full justify-center" onClick={() => handleAction("translate")} type="button">
-                    <Sparkles size={16} />
+                  <button
+                    className="primary-button mt-3 w-full justify-center"
+                    disabled={!activeProviderReady || providerTestState === "Testing"}
+                    onClick={handleTestProvider}
+                    type="button"
+                  >
+                    {providerTestState === "Testing" ? <RefreshCw className="spin-icon" size={16} /> : <Sparkles size={16} />}
                     Test Provider
                   </button>
+                  <div className={`provider-test-state ${providerTestState.includes("failed") || providerTestState.includes("Error") || providerTestState.includes("API") ? "provider-test-state-error" : ""}`}>
+                    {providerTestState}
+                  </div>
                 </section>
               )}
 
@@ -1261,6 +1296,7 @@ function CommandsPanel({
   inlineBuffer,
   inlinePreview,
   inlineResult,
+  onSettingsSaved,
   onExecuteInline,
   setInlineBuffer,
   setInlineResult,
@@ -1271,6 +1307,7 @@ function CommandsPanel({
   inlineBuffer: string;
   inlinePreview: string;
   inlineResult: string;
+  onSettingsSaved: Dispatch<SetStateAction<AppSettings>>;
   onExecuteInline: () => void;
   setInlineBuffer: Dispatch<SetStateAction<string>>;
   setInlineResult: Dispatch<SetStateAction<string>>;
@@ -1378,6 +1415,7 @@ function CommandsPanel({
     try {
       const saved = await saveSettings(nextSettings);
       setSettings(saved);
+      onSettingsSaved(saved);
       setDirty(false);
       setApplyState("Applied");
       setInlineResult("Đã Apply. Inline hook đang dùng prompt và function mới.");
@@ -1546,10 +1584,12 @@ function CommandsPanel({
 }
 
 function FloatingActionsPanel({
+  onSettingsSaved,
   setSettings,
   setStatus,
   settings,
 }: {
+  onSettingsSaved: Dispatch<SetStateAction<AppSettings>>;
   setSettings: Dispatch<SetStateAction<AppSettings>>;
   setStatus: Dispatch<SetStateAction<{system: string[], inline: string[]}>>;
   settings: AppSettings;
@@ -1630,6 +1670,7 @@ function FloatingActionsPanel({
     try {
       const saved = await saveSettings(nextSettings);
       setSettings(saved);
+      onSettingsSaved(saved);
       setDirty(false);
       setApplyState("Applied");
       getRuntimeStatus().then(setStatus).catch(() => undefined);
